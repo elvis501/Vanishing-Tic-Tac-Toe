@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vanishing XO</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --x:      #00e5ff;
+      --x-dim:  rgba(0, 229, 255, 0.12);
+      --x-glow: rgba(0, 229, 255, 0.45);
+      --o:      #ff6d3b;
+      --o-dim:  rgba(255, 109, 59, 0.12);
+      --o-glow: rgba(255, 109, 59, 0.45);
+      --bg:       #080814;
+      --surface:  #10101e;
+      --surface2: #17172c;
+      --border:   #252542;
+      --text:     #d0d0f0;
+      --muted:    #55557a;
+      --radius:   14px;
+      --anim:     340ms;
+    }
+
+    body {
+      background: var(--bg);
+      background-image:
+        radial-gradient(ellipse 90% 55% at 50% -5%,  rgba(80, 0, 160, 0.35) 0%, transparent 60%),
+        radial-gradient(ellipse 55% 40% at 10% 90%, rgba(0,  60, 140, 0.18) 0%, transparent 55%),
+        radial-gradient(ellipse 40% 30% at 90% 80%, rgba(160, 30, 0,  0.12) 0%, transparent 50%);
+      color: var(--text);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      min-height: 100svh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      padding: 20px 16px;
+    }
+
+    /* ── Header ── */
+    header { text-align: center; }
+
+    h1 {
+      font-size: clamp(1.9rem, 6vw, 2.7rem);
+      font-weight: 900;
+      letter-spacing: -0.01em;
+      background: linear-gradient(125deg, var(--x) 0%, #b06cff 48%, var(--o) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .tagline {
+      color: var(--muted);
+      font-size: 0.78rem;
+      margin-top: 5px;
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Turn Indicator ── */
+    #turn-indicator {
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 8px 22px;
+      border-radius: 99px;
+      border: 1.5px solid var(--border);
+      background: var(--surface);
+      transition: color .3s, border-color .3s, box-shadow .3s;
+    }
+    #turn-indicator.x { color: var(--x); border-color: var(--x); box-shadow: 0 0 18px var(--x-glow); }
+    #turn-indicator.o { color: var(--o); border-color: var(--o); box-shadow: 0 0 18px var(--o-glow); }
+
+    /* ── Board ── */
+    #board {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      padding: 10px;
+      background: var(--surface);
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      width: min(330px, 92vw);
+    }
+
+    /* Hover preview: faint mark of current player on empty cells */
+    #board[data-player="X"] .cell:not(.occupied):hover::after { content: 'X'; color: var(--x); }
+    #board[data-player="O"] .cell:not(.occupied):hover::after { content: 'O'; color: var(--o); }
+    .cell:not(.occupied):hover::after {
+      position: absolute;
+      font-size: inherit;
+      font-weight: 900;
+      opacity: 0.15;
+      pointer-events: none;
+    }
+
+    .cell {
+      aspect-ratio: 1;
+      border-radius: var(--radius);
+      background: var(--surface2);
+      border: 2px solid var(--border);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: clamp(1.9rem, 7.5vw, 3.2rem);
+      font-weight: 900;
+      position: relative;
+      overflow: hidden;
+      transition: background .15s, border-color .2s, box-shadow .2s;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Cell number label */
+    .cell::before {
+      content: attr(data-num);
+      position: absolute;
+      top: 5px; left: 7px;
+      font-size: 0.5rem;
+      font-weight: 600;
+      color: var(--border);
+      line-height: 1;
+      pointer-events: none;
+    }
+
+    .cell:hover:not(.occupied) { background: #1b1b33; border-color: #363660; }
+    .cell.occupied { cursor: default; }
+
+    .mark { display: block; line-height: 1; }
+
+    /* X / O coloring */
+    .cell.x .mark { color: var(--x); text-shadow: 0 0 18px var(--x), 0 0 50px var(--x-glow); }
+    .cell.o .mark { color: var(--o); text-shadow: 0 0 18px var(--o), 0 0 50px var(--o-glow); }
+    .cell.x { border-color: rgba(0,229,255,0.28); }
+    .cell.o { border-color: rgba(255,109,59,0.28); }
+
+    /* ── Ghost (about-to-vanish) ── */
+    @keyframes vanish-pulse {
+      0%, 100% { opacity: 1;    filter: brightness(1); }
+      50%       { opacity: 0.18; filter: brightness(0.4); }
+    }
+    .cell.ghost .mark { animation: vanish-pulse 1.1s ease-in-out infinite; }
+    .cell.ghost.x { background: var(--x-dim); border-color: var(--x); }
+    .cell.ghost.o { background: var(--o-dim); border-color: var(--o); }
+
+    /* ── Enter / Exit animations ── */
+    @keyframes pop-in {
+      0%   { transform: scale(0)    rotate(-18deg); opacity: 0; }
+      65%  { transform: scale(1.22) rotate(4deg);  opacity: 1; }
+      100% { transform: scale(1)    rotate(0deg);  opacity: 1; }
+    }
+    @keyframes pop-out {
+      0%   { transform: scale(1);    opacity: 1; }
+      35%  { transform: scale(1.25); opacity: 0.7; }
+      100% { transform: scale(0);    opacity: 0; }
+    }
+    .cell.entering .mark { animation: pop-in  var(--anim) cubic-bezier(0.34,1.56,0.64,1) both; }
+    .cell.exiting  .mark { animation: pop-out var(--anim) ease-in both; }
+
+    /* ── Win cells ── */
+    @keyframes win-pulse {
+      0%, 100% { transform: scale(1);    }
+      50%       { transform: scale(1.1); }
+    }
+    .cell.win-cell .mark { animation: win-pulse 0.65s ease-in-out infinite; }
+    .cell.win-cell.x { background: var(--x-dim); border-color: var(--x); box-shadow: inset 0 0 22px var(--x-glow), 0 0 14px var(--x-glow); }
+    .cell.win-cell.o { background: var(--o-dim); border-color: var(--o); box-shadow: inset 0 0 22px var(--o-glow), 0 0 14px var(--o-glow); }
+
+    /* ── Queue Panels ── */
+    #queues {
+      display: flex;
+      gap: 12px;
+      width: min(330px, 92vw);
+    }
+
+    .q-card {
+      flex: 1;
+      background: var(--surface);
+      border-radius: var(--radius);
+      border: 1.5px solid var(--border);
+      padding: 10px 12px 9px;
+      transition: border-color .3s, box-shadow .3s;
+      min-width: 0;
+    }
+    .q-card.active.xc { border-color: var(--x); box-shadow: 0 0 14px var(--x-glow); }
+    .q-card.active.oc { border-color: var(--o); box-shadow: 0 0 14px var(--o-glow); }
+
+    .q-header {
+      font-size: 0.62rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 7px;
+    }
+    .q-card.active.xc .q-header { color: var(--x); }
+    .q-card.active.oc .q-header { color: var(--o); }
+
+    .q-row {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 28px;
+      flex-wrap: nowrap;
+    }
+
+    .q-badge {
+      width: 26px; height: 26px;
+      border-radius: 6px;
+      border: 1.5px solid;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.78rem;
+      font-weight: 900;
+      flex-shrink: 0;
+      position: relative;
+      transition: opacity .25s;
+    }
+    .q-badge.xb { color: var(--x); border-color: var(--x); background: var(--x-dim); }
+    .q-badge.ob { color: var(--o); border-color: var(--o); background: var(--o-dim); }
+
+    /* Oldest badge (will vanish) */
+    .q-badge.oldest {
+      opacity: 0.38;
+      border-style: dashed;
+    }
+
+    /* Cell position superscript on each badge */
+    .q-pos {
+      position: absolute;
+      top: -6px; right: -4px;
+      font-size: 0.42rem;
+      font-weight: 700;
+      background: var(--bg);
+      border-radius: 3px;
+      padding: 0 2px;
+      line-height: 1.5;
+    }
+    .q-badge.xb .q-pos { color: var(--x); }
+    .q-badge.ob .q-pos { color: var(--o); }
+
+    .q-arrow { color: var(--muted); font-size: 0.65rem; flex-shrink: 0; }
+
+    .q-empty { color: var(--muted); font-size: 0.72rem; font-style: italic; }
+
+    .q-hint {
+      font-size: 0.58rem;
+      color: var(--muted);
+      margin-top: 5px;
+      min-height: 1em;
+      transition: color .3s;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .q-hint.warn.xc { color: var(--x); }
+    .q-hint.warn.oc { color: var(--o); }
+
+    /* ── Legend ── */
+    .legend {
+      font-size: 0.68rem;
+      color: var(--muted);
+      text-align: center;
+      line-height: 1.6;
+      max-width: 310px;
+    }
+
+    /* ── Win Overlay ── */
+    #win-overlay {
+      position: fixed; inset: 0;
+      background: rgba(8, 8, 20, 0.88);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .4s ease;
+    }
+    #win-overlay.show { opacity: 1; pointer-events: all; }
+
+    .win-card {
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-radius: 24px;
+      padding: 38px 48px 34px;
+      text-align: center;
+      max-width: 320px;
+      width: 90%;
+      transform: translateY(24px) scale(0.88);
+      transition: transform .5s cubic-bezier(0.34,1.56,0.64,1);
+    }
+    #win-overlay.show .win-card { transform: translateY(0) scale(1); }
+
+    .win-mark {
+      font-size: 4.5rem;
+      line-height: 1;
+      margin-bottom: 14px;
+      display: block;
+    }
+    .win-mark.x { color: var(--x); text-shadow: 0 0 30px var(--x), 0 0 80px var(--x-glow); }
+    .win-mark.o { color: var(--o); text-shadow: 0 0 30px var(--o), 0 0 80px var(--o-glow); }
+
+    .win-title {
+      font-size: 1.75rem;
+      font-weight: 900;
+      letter-spacing: -0.01em;
+      margin-bottom: 6px;
+    }
+    .win-title.x { color: var(--x); text-shadow: 0 0 20px var(--x-glow); }
+    .win-title.o { color: var(--o); text-shadow: 0 0 20px var(--o-glow); }
+
+    .win-sub { color: var(--muted); font-size: 0.88rem; margin-bottom: 26px; }
+
+    @keyframes btn-shimmer {
+      0%   { background-position: -200% center; }
+      100% { background-position:  200% center; }
+    }
+
+    .btn-replay {
+      background: linear-gradient(90deg, var(--x), #9c40ff, var(--o), #9c40ff, var(--x));
+      background-size: 300% auto;
+      animation: btn-shimmer 3s linear infinite;
+      color: #fff;
+      font-weight: 800;
+      font-size: 0.92rem;
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+      padding: 13px 30px;
+      border: none;
+      border-radius: 99px;
+      cursor: pointer;
+      transition: transform .2s, box-shadow .2s;
+      box-shadow: 0 4px 22px rgba(0,200,255,0.3);
+    }
+    .btn-replay:hover  { transform: scale(1.07); box-shadow: 0 6px 32px rgba(0,200,255,0.5); }
+    .btn-replay:active { transform: scale(0.97); }
+
+    @media (max-width: 360px) {
+      #queues { flex-direction: column; }
+      .win-card { padding: 28px 22px; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>Vanishing XO</h1>
+    <p class="tagline">max 3 marks each &mdash; your oldest vanishes when you place a 4th</p>
+  </header>
+
+  <div id="turn-indicator" class="x">Player X&rsquo;s Turn</div>
+
+  <div id="board" data-player="X"></div>
+
+  <div id="queues">
+    <div class="q-card xc active" id="qcard-x">
+      <div class="q-header">&#10005; Player X</div>
+      <div class="q-row" id="qrow-x"></div>
+      <div class="q-hint xc" id="qhint-x"></div>
+    </div>
+    <div class="q-card oc" id="qcard-o">
+      <div class="q-header">&#9711; Player O</div>
+      <div class="q-row" id="qrow-o"></div>
+      <div class="q-hint oc" id="qhint-o"></div>
+    </div>
+  </div>
+
+  <p class="legend">
+    Fading mark on board = vanishes on that player&rsquo;s next move<br>
+    Dashed badge in queue = next to go &nbsp;&bull;&nbsp; numbers = board cell
+  </p>
+
+  <div id="win-overlay">
+    <div class="win-card" id="win-card">
+      <span class="win-mark x" id="win-mark">X</span>
+      <div class="win-title x" id="win-title">Player X Wins!</div>
+      <div class="win-sub"    id="win-sub">Brilliant play!</div>
+      <button class="btn-replay" onclick="resetGame()">Play Again</button>
+    </div>
+  </div>
+
+  <script>
+    /* ─────────────────── Constants ─────────────────── */
+    const WIN_LINES = [
+      [0,1,2],[3,4,5],[6,7,8],   // rows
+      [0,3,6],[1,4,7],[2,5,8],   // cols
+      [0,4,8],[2,4,6]            // diags
+    ];
+    const ANIM_MS = 340;
+    const QUIPS = {
+      X: ['Brilliant play, X!', 'X dominates the grid!', 'Nice move, X!', 'X claims the win!'],
+      O: ['O takes the crown!',  'Impressive, O!',        'O strikes true!',  'Well played, O!']
+    };
+
+    /* ─────────────────── State ─────────────────── */
+    let board, queues, currentPlayer, gameOver, isAnimating;
+
+    function initState() {
+      board          = Array(9).fill(null);
+      queues         = { X: [], O: [] };
+      currentPlayer  = 'X';
+      gameOver       = false;
+      isAnimating    = false;
+    }
+
+    /* ─────────────────── Board DOM ─────────────────── */
+    function buildBoard() {
+      const el = document.getElementById('board');
+      el.innerHTML = '';
+      el.dataset.player = 'X';
+      for (let i = 0; i < 9; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.num = i + 1;
+        cell.addEventListener('click', () => handleClick(i));
+        el.appendChild(cell);
+      }
+    }
+
+    function getCell(i) {
+      return document.getElementById('board').children[i];
+    }
+
+    /** Populate a cell element with a player mark (or clear it). */
+    function setCellMark(cell, player, opts = {}) {
+      // Preserve data-num across class reset
+      const num = cell.dataset.num;
+      cell.className = 'cell';
+      cell.dataset.num = num;
+      cell.innerHTML = '';
+
+      if (!player) return;
+
+      cell.classList.add('occupied', player.toLowerCase());
+      const mark = document.createElement('span');
+      mark.className = 'mark';
+      mark.textContent = player;
+
+      if (opts.entering) {
+        cell.classList.add('entering');
+        mark.addEventListener('animationend', () => cell.classList.remove('entering'), { once: true });
+      }
+
+      cell.appendChild(mark);
+    }
+
+    /** Refresh ghost (about-to-vanish) highlight for both players' oldest marks. */
+    function refreshGhost() {
+      for (let i = 0; i < 9; i++) getCell(i).classList.remove('ghost');
+      if (gameOver) return;
+      for (const player of ['X', 'O']) {
+        const q = queues[player];
+        if (q.length === 3) {
+          getCell(q[0]).classList.add('ghost');
+        }
+      }
+    }
+
+    /* ─────────────────── Win check ─────────────────── */
+    function checkWin(player, b) {
+      for (const line of WIN_LINES) {
+        if (line.every(i => b[i] === player)) return line;
+      }
+      return null;
+    }
+
+    /* ─────────────────── Click handler ─────────────────── */
+    function handleClick(idx) {
+      if (gameOver || board[idx] !== null || isAnimating) return;
+
+      const player    = currentPlayer;
+      const q         = queues[player];
+      const vanishIdx = q.length === 3 ? q[0] : null;
+
+      // 1. Update board state: place new mark
+      board[idx] = player;
+      q.push(idx);
+
+      // 2. Remove oldest from state BEFORE win check so checkWin sees the final board
+      if (vanishIdx !== null) {
+        board[vanishIdx] = null;
+        q.shift();
+      }
+
+      // 3. Win check on final board state
+      const winLine = checkWin(player, board);
+
+      // 4. DOM: animate new mark entering
+      setCellMark(getCell(idx), player, { entering: true });
+
+      if (winLine) {
+        gameOver = true;
+        // DOM: animate vanish if one occurred (board state already cleared)
+        if (vanishIdx !== null) {
+          const vc = getCell(vanishIdx);
+          vc.classList.remove('ghost');
+          vc.classList.add('exiting');
+          setTimeout(() => setCellMark(vc, null), ANIM_MS);
+        }
+        refreshGhost();
+        renderQueues();
+        // Wait for enter/exit animations to finish before highlighting win cells
+        setTimeout(() => {
+          winLine.forEach(i => {
+            const c = getCell(i);
+            c.classList.remove('entering', 'ghost');
+            c.classList.add('win-cell');
+          });
+          showWin(player);
+        }, ANIM_MS);
+        return;
+      }
+
+      // 5. No win: animate DOM vanish if one occurred
+      if (vanishIdx !== null) {
+        isAnimating = true;
+        const vc = getCell(vanishIdx);
+        vc.classList.remove('ghost');
+        vc.classList.add('exiting');
+
+        renderQueues();
+
+        setTimeout(() => {
+          setCellMark(vc, null);
+          isAnimating   = false;
+          currentPlayer = player === 'X' ? 'O' : 'X';
+          document.getElementById('board').dataset.player = currentPlayer;
+          refreshGhost();
+          renderTurnIndicator();
+          renderQueues();
+        }, ANIM_MS);
+      } else {
+        currentPlayer = player === 'X' ? 'O' : 'X';
+        document.getElementById('board').dataset.player = currentPlayer;
+        refreshGhost();
+        renderTurnIndicator();
+        renderQueues();
+      }
+    }
+
+    /* ─────────────────── UI Renderers ─────────────────── */
+    function renderTurnIndicator() {
+      const el = document.getElementById('turn-indicator');
+      el.className = currentPlayer.toLowerCase();
+      el.textContent = `Player ${currentPlayer}\u2019s Turn`;
+    }
+
+    function renderQueues() {
+      renderPlayerQueue('X');
+      renderPlayerQueue('O');
+    }
+
+    function renderPlayerQueue(player) {
+      const q       = queues[player];
+      const lc      = player.toLowerCase();
+      const row     = document.getElementById(`qrow-${lc}`);
+      const hint    = document.getElementById(`qhint-${lc}`);
+      const card    = document.getElementById(`qcard-${lc}`);
+
+      // Active card border
+      if (!gameOver && currentPlayer === player) {
+        card.classList.add('active');
+      } else {
+        card.classList.remove('active');
+      }
+
+      row.innerHTML = '';
+
+      if (q.length === 0) {
+        row.innerHTML = '<span class="q-empty">empty</span>';
+        hint.textContent = '';
+        hint.className = `q-hint ${lc}c`;
+        return;
+      }
+
+      // When queue momentarily has 4 items (mid-animation), display the 3 that will remain.
+      // This gives an instant preview of the post-vanish state.
+      const display = q.length > 3 ? q.slice(1) : q;
+
+      display.forEach((cellIdx, i) => {
+        if (i > 0) {
+          const arr = document.createElement('span');
+          arr.className = 'q-arrow';
+          arr.textContent = '›';
+          row.appendChild(arr);
+        }
+
+        const badge = document.createElement('div');
+        badge.className = `q-badge ${player === 'X' ? 'xb' : 'ob'}`;
+        badge.textContent = player;
+
+        // Oldest badge: dashed & faded — marks which cell vanishes NEXT
+        if (i === 0 && display.length === 3) {
+          badge.classList.add('oldest');
+        }
+
+        // Cell-position label (1–9) on every badge
+        const pos = document.createElement('span');
+        pos.className = 'q-pos';
+        pos.textContent = cellIdx + 1;
+        badge.appendChild(pos);
+
+        row.appendChild(badge);
+      });
+
+      // Hint text below the queue row
+      if (display.length === 3) {
+        hint.textContent = `\u2190 cell ${display[0] + 1} vanishes next`;
+        hint.className = `q-hint warn ${lc}c`;
+      } else {
+        const left = 3 - display.length;
+        hint.textContent = `${left} more mark${left > 1 ? 's' : ''} until vanishing starts`;
+        hint.className = `q-hint ${lc}c`;
+      }
+    }
+
+    /* ─────────────────── Win Screen ─────────────────── */
+    function showWin(player) {
+      const lc    = player.toLowerCase();
+      const quip  = QUIPS[player][Math.floor(Math.random() * QUIPS[player].length)];
+
+      document.getElementById('win-mark').textContent  = player;
+      document.getElementById('win-mark').className    = `win-mark ${lc}`;
+      document.getElementById('win-title').textContent = `Player ${player} Wins!`;
+      document.getElementById('win-title').className   = `win-title ${lc}`;
+      document.getElementById('win-sub').textContent   = quip;
+
+      const card = document.getElementById('win-card');
+      card.style.borderColor = player === 'X' ? 'var(--x)' : 'var(--o)';
+      card.style.boxShadow   = player === 'X'
+        ? '0 0 50px var(--x-glow)'
+        : '0 0 50px var(--o-glow)';
+
+      setTimeout(() => document.getElementById('win-overlay').classList.add('show'), 150);
+    }
+
+    /* ─────────────────── Reset ─────────────────── */
+    function resetGame() {
+      document.getElementById('win-overlay').classList.remove('show');
+      initState();
+      buildBoard();
+      renderTurnIndicator();
+      renderQueues();
+    }
+
+    /* ─────────────────── Boot ─────────────────── */
+    initState();
+    buildBoard();
+    renderTurnIndicator();
+    renderQueues();
+  </script>
+</body>
+</html>
