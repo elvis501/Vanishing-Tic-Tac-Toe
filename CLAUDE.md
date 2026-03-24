@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Single-file browser game: a twist on Tic Tac Toe where each player can hold at most **3 marks** on the board at any time. Placing a 4th mark removes the oldest one (FIFO queue). No external dependencies — everything is in `index.html`.
+Single-file browser game: a twist on Tic Tac Toe where each player can hold at most **3 marks** on the board at any time. Placing a 4th mark removes the oldest one (FIFO queue). One external dependency: **Google Fonts (Quicksand)** loaded via `<link>` in `<head>`.
 
 ## File Structure
 
@@ -84,6 +84,11 @@ handleClick(idx)
 --anim:   340ms     /* animation duration — used in both CSS and JS */
 ```
 
+## Typography
+
+- **Font**: Quicksand (Google Fonts) — weights 400/500/600/700
+- **Fallback**: `'Segoe UI', system-ui, -apple-system, sans-serif`
+
 ## Animations
 
 | Class | Effect |
@@ -94,6 +99,8 @@ handleClick(idx)
 | `.win-cell` | `win-pulse`: scale 1 → 1.1 → 1 (0.65s loop) + colored box-shadow |
 
 Entering animation is removed via `animationend` listener to avoid conflicting with `.ghost` if that cell later becomes the oldest.
+
+All animations respect `@media (prefers-reduced-motion: reduce)` — durations collapse to `0.01ms`.
 
 ## Queue Panel Display
 
@@ -121,9 +128,28 @@ Entering animation is removed via `animationend` listener to avoid conflicting w
 - Shimmer gradient button with `background-position` animation
 - Win check fires **after** oldest mark removal from state; card appears after `ANIM_MS` delay so both entering and exiting DOM animations finish first
 - Random quip from `QUIPS[player]` array per win
+- `.win-card` gets class `x` or `o` on win — used by `::before` pseudo-element to add a subtle radial glow in the winner's color (opacity 0.06)
+- `showWin()` sets `card.className = 'win-card ' + lc` to apply the color class
 
 ## Responsiveness
 
 - Board: `min(330px, 92vw)` — fills mobile width
 - Queue panels: side-by-side flex; stack vertically on screens ≤ 360px via media query
 - Font sizes: `clamp()` throughout
+
+## Accessibility & Keyboard Navigation
+
+- All 9 cells have `tabindex="0"` — keyboard users can Tab through the board
+- `keydown` listener on each cell: Enter or Space triggers `handleClick(i)`
+- `:focus-visible` rings on cells (`#7070b0`) and the replay button (`rgba(255,255,255,0.7)`)
+- `@media (prefers-reduced-motion: reduce)` disables all animations and transitions
+
+## Background
+
+Body uses 4-layer `background-image`:
+1. Purple top glow (ellipse, 50% –5%)
+2. Blue bottom-left glow
+3. Orange bottom-right glow
+4. Dot grid: `radial-gradient(circle, rgba(255,255,255,0.028) 1px, transparent 1px)` at `28px 28px`
+
+`background-size` must be set explicitly to `auto, auto, auto, 28px 28px` for the dot grid layer to tile correctly.

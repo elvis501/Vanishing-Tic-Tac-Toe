@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vanishing XO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -27,11 +30,13 @@
     body {
       background: var(--bg);
       background-image:
-        radial-gradient(ellipse 90% 55% at 50% -5%,  rgba(80, 0, 160, 0.35) 0%, transparent 60%),
-        radial-gradient(ellipse 55% 40% at 10% 90%, rgba(0,  60, 140, 0.18) 0%, transparent 55%),
-        radial-gradient(ellipse 40% 30% at 90% 80%, rgba(160, 30, 0,  0.12) 0%, transparent 50%);
+        radial-gradient(ellipse 90% 55% at 50% -5%,  rgba(80, 0, 160, 0.38) 0%, transparent 60%),
+        radial-gradient(ellipse 55% 40% at 10% 90%, rgba(0,  60, 140, 0.22) 0%, transparent 55%),
+        radial-gradient(ellipse 40% 30% at 90% 80%, rgba(160, 30, 0,  0.15) 0%, transparent 50%),
+        radial-gradient(circle, rgba(255,255,255,0.028) 1px, transparent 1px);
+      background-size: auto, auto, auto, 28px 28px;
       color: var(--text);
-      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      font-family: 'Quicksand', 'Segoe UI', system-ui, -apple-system, sans-serif;
       min-height: 100svh;
       display: flex;
       flex-direction: column;
@@ -46,7 +51,7 @@
 
     h1 {
       font-size: clamp(1.9rem, 6vw, 2.7rem);
-      font-weight: 900;
+      font-weight: 700;
       letter-spacing: -0.01em;
       background: linear-gradient(125deg, var(--x) 0%, #b06cff 48%, var(--o) 100%);
       -webkit-background-clip: text;
@@ -86,7 +91,11 @@
       border-radius: 20px;
       border: 1px solid var(--border);
       width: min(330px, 92vw);
+      box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 8px 40px rgba(0,0,0,0.5);
+      transition: box-shadow .4s;
     }
+    #board[data-player="X"] { box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 8px 40px rgba(0,0,0,0.5), 0 0 28px rgba(0,229,255,0.07); }
+    #board[data-player="O"] { box-shadow: 0 0 0 1px rgba(255,255,255,0.03), 0 8px 40px rgba(0,0,0,0.5), 0 0 28px rgba(255,109,59,0.07); }
 
     /* Hover preview: faint mark of current player on empty cells */
     #board[data-player="X"] .cell:not(.occupied):hover::after { content: 'X'; color: var(--x); }
@@ -129,7 +138,9 @@
       pointer-events: none;
     }
 
-    .cell:hover:not(.occupied) { background: #1b1b33; border-color: #363660; }
+    .cell:hover:not(.occupied) { background: #1e1e38; border-color: #454575; box-shadow: inset 0 0 12px rgba(255,255,255,0.04); }
+    .cell:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+    .cell:focus-visible:not(.occupied) { outline-color: #7070b0; }
     .cell.occupied { cursor: default; }
 
     .mark { display: block; line-height: 1; }
@@ -266,8 +277,12 @@
       font-size: 0.68rem;
       color: var(--muted);
       text-align: center;
-      line-height: 1.6;
+      line-height: 1.7;
       max-width: 310px;
+      padding: 8px 14px;
+      background: rgba(255,255,255,0.025);
+      border: 1px solid var(--border);
+      border-radius: 10px;
     }
 
     /* ── Win Overlay ── */
@@ -294,7 +309,19 @@
       width: 90%;
       transform: translateY(24px) scale(0.88);
       transition: transform .5s cubic-bezier(0.34,1.56,0.64,1);
+      position: relative;
+      overflow: hidden;
     }
+    .win-card::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      opacity: 0.06;
+      pointer-events: none;
+      border-radius: inherit;
+    }
+    .win-card.x::before { background: radial-gradient(ellipse at 50% 0%, var(--x), transparent 70%); }
+    .win-card.o::before { background: radial-gradient(ellipse at 50% 0%, var(--o), transparent 70%); }
     #win-overlay.show .win-card { transform: translateY(0) scale(1); }
 
     .win-mark {
@@ -340,6 +367,11 @@
     }
     .btn-replay:hover  { transform: scale(1.07); box-shadow: 0 6px 32px rgba(0,200,255,0.5); }
     .btn-replay:active { transform: scale(0.97); }
+    .btn-replay:focus-visible { outline: 2px solid rgba(255,255,255,0.7); outline-offset: 3px; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
 
     @media (max-width: 360px) {
       #queues { flex-direction: column; }
@@ -418,7 +450,11 @@
         const cell = document.createElement('div');
         cell.className = 'cell';
         cell.dataset.num = i + 1;
+        cell.setAttribute('tabindex', '0');
         cell.addEventListener('click', () => handleClick(i));
+        cell.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(i); }
+        });
         el.appendChild(cell);
       }
     }
@@ -632,6 +668,7 @@
       document.getElementById('win-sub').textContent   = quip;
 
       const card = document.getElementById('win-card');
+      card.className = 'win-card ' + lc;
       card.style.borderColor = player === 'X' ? 'var(--x)' : 'var(--o)';
       card.style.boxShadow   = player === 'X'
         ? '0 0 50px var(--x-glow)'
