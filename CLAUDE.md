@@ -243,9 +243,13 @@ Procedural WebAudio only — no audio files:
 
 ## Responsiveness
 
-- Board: `min(330px, 92vw)` — fills mobile width
+- Layout width is driven by one custom property: `--app-w: min(330px, 92vw)` in `:root`. `#topbar`, `#board`, `#controls` and `#queues` all use `width: var(--app-w)`, so changing the game's size is a one-line change (e.g. a `@media (min-width: 720px)` override for tablets)
+- Verified with an iframe harness at 320 / 360 / 375 / 414 / 768 / 1024 px: no horizontal scrolling at any width
 - Queue panels: side-by-side flex; stack vertically on screens ≤ 360px via media query
+- ≤ 360px: the turn pill gets a smaller font, tighter padding and `white-space: nowrap`, so "Computer thinking…" stays on one line and clear of the icon buttons
 - Font sizes: `clamp()` throughout
+- **Win overlay** is a fixed flex container with `overflow-y: auto` and the card using `margin: auto` — it stays centred when it fits and becomes scrollable instead of being clipped on short viewports
+- Short viewports (`max-height: 460px`, e.g. landscape phones) compress the win card; under 380px the big win mark shrinks to keep everything visible without scrolling
 
 ## Accessibility & Keyboard Navigation
 
