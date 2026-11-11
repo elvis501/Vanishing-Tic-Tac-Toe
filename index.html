@@ -4,6 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Vanishing XO</title>
+  <meta name="description" content="Vanishing XO — tic tac toe with a twist: max 3 marks each, and your oldest mark flies to the cell you pick on your 4th move.">
+  <meta name="theme-color" content="#080814">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="Vanishing XO">
+  <meta property="og:description" content="Tic tac toe with a twist: max 3 marks each. Your oldest mark flies to the cell you pick on your 4th move.">
+  <meta property="og:url" content="https://elvis501.github.io/Vanishing-Tic-Tac-Toe/">
+  <meta name="twitter:card" content="summary">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23080814'/%3E%3Cpath d='M14 24l16 16M30 24L14 40' stroke='%2300e5ff' stroke-width='6' stroke-linecap='round'/%3E%3Ccircle cx='42' cy='32' r='8' stroke='%23ff6d3b' stroke-width='6' fill='none'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -81,8 +89,46 @@
     #turn-indicator.x { color: var(--x); border-color: var(--x); box-shadow: 0 0 18px var(--x-glow); }
     #turn-indicator.o { color: var(--o); border-color: var(--o); box-shadow: 0 0 18px var(--o-glow); }
 
+    /* ── Top bar (turn + actions) ── */
+    #topbar {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      width: min(330px, 92vw);
+    }
+    #topbar > #turn-indicator { grid-column: 2; }
+    .topbar-actions {
+      grid-column: 3;
+      justify-self: end;
+      display: flex;
+      gap: 6px;
+    }
+    .btn-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border);
+      background: var(--surface);
+      color: var(--muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: color .2s, border-color .2s, transform .2s, box-shadow .2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-icon:hover { color: var(--text); border-color: #454575; box-shadow: 0 0 12px rgba(255,255,255,0.05); }
+    .btn-icon:active { transform: scale(0.9); }
+    .btn-icon:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+    #sound-toggle.muted { color: var(--muted); }
+    #sound-toggle:not(.muted) { color: #b0b0d8; }
+    #sound-toggle .snd-off { display: none; }
+    #sound-toggle.muted .snd-off { display: block; }
+    #sound-toggle.muted .snd-on { display: none; }
+
     /* ── Board ── */
     #board {
+      position: relative;
       display: grid;
       grid-template-columns: repeat(3, 1fr);
       gap: 8px;
@@ -107,6 +153,37 @@
       opacity: 0.15;
       pointer-events: none;
     }
+
+    /* Move preview: dashed arrow from the oldest mark to the hovered cell */
+    #move-line {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 2;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .16s ease;
+    }
+    #board.previewing #move-line { opacity: 1; }
+    #move-line line {
+      stroke: currentColor;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-dasharray: 7 9;
+    }
+    #move-line.x { color: var(--x); }
+    #move-line.o { color: var(--o); }
+
+    /* The mark that will fly off: stops pulsing, gets a dashed "armed" frame */
+    .cell.ghost.armed .mark {
+      animation: none;
+      opacity: 1;
+      transform: scale(1.1);
+      transition: transform .16s ease, opacity .16s ease;
+    }
+    .cell.x.armed { border-style: dashed; box-shadow: 0 0 16px var(--x-glow); }
+    .cell.o.armed { border-style: dashed; box-shadow: 0 0 16px var(--o-glow); }
 
     .cell {
       aspect-ratio: 1;
@@ -160,19 +237,34 @@
     .cell.ghost.x { background: var(--x-dim); border-color: var(--x); }
     .cell.ghost.o { background: var(--o-dim); border-color: var(--o); }
 
-    /* ── Enter / Exit animations ── */
+    /* ── Enter / Land animations ── */
     @keyframes pop-in {
       0%   { transform: scale(0)    rotate(-18deg); opacity: 0; }
       65%  { transform: scale(1.22) rotate(4deg);  opacity: 1; }
       100% { transform: scale(1)    rotate(0deg);  opacity: 1; }
     }
-    @keyframes pop-out {
-      0%   { transform: scale(1);    opacity: 1; }
-      35%  { transform: scale(1.25); opacity: 0.7; }
-      100% { transform: scale(0);    opacity: 0; }
+    @keyframes land-pop {
+      0%   { transform: scale(1.28); opacity: 0.55; }
+      55%  { transform: scale(0.92); opacity: 1; }
+      100% { transform: scale(1);    opacity: 1; }
     }
-    .cell.entering .mark { animation: pop-in  var(--anim) cubic-bezier(0.34,1.56,0.64,1) both; }
-    .cell.exiting  .mark { animation: pop-out var(--anim) ease-in both; }
+    .cell.entering .mark { animation: pop-in   var(--anim) cubic-bezier(0.34,1.56,0.64,1) both; }
+    .cell.landing  .mark { animation: land-pop 260ms      cubic-bezier(0.34,1.56,0.64,1) both; }
+
+    /* ── Flying mark (travels from the oldest cell to the new cell) ── */
+    .fly-mark {
+      position: fixed;
+      z-index: 50;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 900;
+      line-height: 1;
+      pointer-events: none;
+      will-change: transform;
+    }
+    .fly-mark.x { color: var(--x); text-shadow: 0 0 18px var(--x), 0 0 50px var(--x-glow); }
+    .fly-mark.o { color: var(--o); text-shadow: 0 0 18px var(--o), 0 0 50px var(--o-glow); }
 
     /* ── Win cells ── */
     @keyframes win-pulse {
@@ -203,6 +295,10 @@
     .q-card.active.oc { border-color: var(--o); box-shadow: 0 0 14px var(--o-glow); }
 
     .q-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 6px;
       font-size: 0.62rem;
       font-weight: 700;
       letter-spacing: 0.1em;
@@ -212,6 +308,24 @@
     }
     .q-card.active.xc .q-header { color: var(--x); }
     .q-card.active.oc .q-header { color: var(--o); }
+
+    /* Match score in the queue header */
+    .q-wins {
+      font-size: 0.78rem;
+      font-weight: 900;
+      letter-spacing: 0;
+      color: var(--muted);
+      transition: color .3s;
+    }
+    .q-card.xc .q-wins { color: var(--x); }
+    .q-card.oc .q-wins { color: var(--o); }
+
+    @keyframes score-bump {
+      0%   { transform: scale(1); }
+      45%  { transform: scale(1.5); }
+      100% { transform: scale(1); }
+    }
+    .q-wins.bump { animation: score-bump 0.5s cubic-bezier(0.34,1.56,0.64,1); }
 
     .q-row {
       display: flex;
@@ -342,7 +456,28 @@
     .win-title.x { color: var(--x); text-shadow: 0 0 20px var(--x-glow); }
     .win-title.o { color: var(--o); text-shadow: 0 0 20px var(--o-glow); }
 
-    .win-sub { color: var(--muted); font-size: 0.88rem; margin-bottom: 26px; }
+    .win-sub { color: var(--muted); font-size: 0.88rem; margin-bottom: 18px; }
+
+    .win-score {
+      display: flex;
+      justify-content: center;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 20px;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+    .win-score b { font-size: 1.2rem; }
+    .win-score .x { color: var(--x); }
+    .win-score .o { color: var(--o); }
+    .win-score .ws-sep { color: var(--muted); font-weight: 400; }
+
+    .win-next {
+      margin-top: 16px;
+      font-size: 0.7rem;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
 
     @keyframes btn-shimmer {
       0%   { background-position: -200% center; }
@@ -383,29 +518,40 @@
 
   <header>
     <h1>Vanishing XO</h1>
-    <p class="tagline">max 3 marks each &mdash; your oldest vanishes when you place a 4th</p>
+    <p class="tagline">max 3 marks each &mdash; a 4th move relocates your oldest mark to the new cell</p>
   </header>
 
-  <div id="turn-indicator" class="x">Player X&rsquo;s Turn</div>
+  <div id="topbar">
+    <div id="turn-indicator" class="x" aria-live="polite">Player X&rsquo;s Turn</div>
+    <div class="topbar-actions">
+      <button id="sound-toggle" class="btn-icon" type="button" aria-label="Mute sound" aria-pressed="true" title="Mute sound">
+        <svg class="snd-on" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+        <svg class="snd-off" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z"/><path d="m16 9 5 6M21 9l-5 6"/></svg>
+      </button>
+      <button id="new-game" class="btn-icon" type="button" aria-label="New game" title="New game">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+      </button>
+    </div>
+  </div>
 
   <div id="board" data-player="X"></div>
 
   <div id="queues">
     <div class="q-card xc active" id="qcard-x">
-      <div class="q-header">&#10005; Player X</div>
+      <div class="q-header"><span>&#10005; Player X</span><span class="q-wins" data-wins="X">0</span></div>
       <div class="q-row" id="qrow-x"></div>
       <div class="q-hint xc" id="qhint-x"></div>
     </div>
     <div class="q-card oc" id="qcard-o">
-      <div class="q-header">&#9711; Player O</div>
+      <div class="q-header"><span>&#9711; Player O</span><span class="q-wins" data-wins="O">0</span></div>
       <div class="q-row" id="qrow-o"></div>
       <div class="q-hint oc" id="qhint-o"></div>
     </div>
   </div>
 
   <p class="legend">
-    Fading mark on board = vanishes on that player&rsquo;s next move<br>
-    Dashed badge in queue = next to go &nbsp;&bull;&nbsp; numbers = board cell
+    Fading mark on board = will move to that player&rsquo;s next pick<br>
+    Dashed badge in queue = next to move &nbsp;&bull;&nbsp; numbers = board cell
   </p>
 
   <div id="win-overlay">
@@ -413,7 +559,13 @@
       <span class="win-mark x" id="win-mark">X</span>
       <div class="win-title x" id="win-title">Player X Wins!</div>
       <div class="win-sub"    id="win-sub">Brilliant play!</div>
+      <div class="win-score">
+        <span class="x">X <b data-wins="X">0</b></span>
+        <span class="ws-sep">&middot;</span>
+        <span class="o"><b data-wins="O">0</b> O</span>
+      </div>
       <button class="btn-replay" onclick="resetGame()">Play Again</button>
+      <div class="win-next" id="win-next">O starts next</div>
     </div>
   </div>
 
@@ -425,6 +577,9 @@
       [0,4,8],[2,4,6]            // diags
     ];
     const ANIM_MS = 340;
+    const MOVE_MS = 460;
+    const WIN_HOLD_MS = 2200;   // how long the winning line blinks before the overlay
+    const STORE = { wins: 'vxo:wins', starter: 'vxo:starter', sound: 'vxo:sound' };
     const QUIPS = {
       X: ['Brilliant play, X!', 'X dominates the grid!', 'Nice move, X!', 'X claims the win!'],
       O: ['O takes the crown!',  'Impressive, O!',        'O strikes true!',  'Well played, O!']
@@ -432,20 +587,129 @@
 
     /* ─────────────────── State ─────────────────── */
     let board, queues, currentPlayer, gameOver, isAnimating;
+    let wins, starter, soundOn, audioCtx = null;
+    let flyAnim = null, flyEl = null, winTimer = null;
 
     function initState() {
       board          = Array(9).fill(null);
       queues         = { X: [], O: [] };
-      currentPlayer  = 'X';
+      currentPlayer  = starter;
       gameOver       = false;
       isAnimating    = false;
+    }
+
+    /* ─────────────────── Persistence ─────────────────── */
+    function readStore(key) {
+      try { return localStorage.getItem(key); } catch { return null; }
+    }
+    function writeStore(key, value) {
+      try { localStorage.setItem(key, value); } catch { /* storage unavailable */ }
+    }
+
+    function loadMeta() {
+      wins = { X: 0, O: 0 };
+      const rawWins = readStore(STORE.wins);
+      if (rawWins) {
+        try {
+          const parsed = JSON.parse(rawWins);
+          if (parsed && Number.isFinite(parsed.X) && Number.isFinite(parsed.O)) {
+            wins = { X: parsed.X, O: parsed.O };
+          }
+        } catch { /* corrupted value — keep defaults */ }
+      }
+      starter  = readStore(STORE.starter) === 'O' ? 'O' : 'X';
+      soundOn  = readStore(STORE.sound) !== '0';
+    }
+
+    /* ─────────────────── Sound ─────────────────── */
+    function getAudio() {
+      if (!soundOn) return null;
+      try {
+        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        return audioCtx;
+      } catch { return null; }
+    }
+
+    function tone(freq, { to = null, dur = 0.12, gain = 0.07, type = 'sine', delay = 0 } = {}) {
+      const ctx = getAudio();
+      if (!ctx) return;
+      const t0  = ctx.currentTime + delay;
+      const osc = ctx.createOscillator();
+      const g   = ctx.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t0);
+      if (to) osc.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.exponentialRampToValueAtTime(gain, t0 + Math.min(0.02, dur * 0.2));
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      osc.connect(g).connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t0 + dur + 0.03);
+    }
+
+    const sfx = {
+      place:   () => tone(520, { to: 700, dur: 0.10, gain: 0.06 }),
+      takeoff: () => tone(300, { to: 520, dur: 0.22, gain: 0.045, type: 'triangle' }),
+      land:    () => {
+        tone(660, { to: 420, dur: 0.11, gain: 0.07 });
+        tone(330, { to: 220, dur: 0.14, gain: 0.04, type: 'triangle', delay: 0.02 });
+      },
+      win: () => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) =>
+        tone(f, { dur: 0.28, gain: 0.05, delay: i * 0.095 }))
+    };
+
+    function setSound(on, persist = true) {
+      soundOn = on;
+      if (persist) writeStore(STORE.sound, on ? '1' : '0');
+      const btn = document.getElementById('sound-toggle');
+      btn.classList.toggle('muted', !on);
+      btn.setAttribute('aria-pressed', String(on));
+      btn.setAttribute('aria-label', on ? 'Mute sound' : 'Unmute sound');
+      btn.title = on ? 'Mute sound' : 'Unmute sound';
+      if (on && persist) sfx.place();
+    }
+
+    /* ─────────────────── Score ─────────────────── */
+    function renderScore(bumpPlayer) {
+      document.querySelectorAll('[data-wins]').forEach(el => {
+        el.textContent = wins[el.dataset.wins];
+      });
+      if (!bumpPlayer) return;
+      const el = document.querySelector(`.q-wins[data-wins="${bumpPlayer}"]`);
+      if (!el) return;
+      el.classList.remove('bump');
+      void el.offsetWidth;   // restart the animation
+      el.classList.add('bump');
+      el.addEventListener('animationend', () => el.classList.remove('bump'), { once: true });
+    }
+
+    function recordWin(player) {
+      wins[player] += 1;
+      writeStore(STORE.wins, JSON.stringify(wins));
+      renderScore(player);
     }
 
     /* ─────────────────── Board DOM ─────────────────── */
     function buildBoard() {
       const el = document.getElementById('board');
       el.innerHTML = '';
-      el.dataset.player = 'X';
+      el.dataset.player = currentPlayer;
+
+      // Dashed arrow used by the move preview (absolute, not a grid item)
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.id = 'move-line';
+      svg.setAttribute('aria-hidden', 'true');
+      svg.innerHTML = `
+        <defs>
+          <marker id="move-arrow-head" viewBox="0 0 10 10" refX="8" refY="5"
+                  markerWidth="5" markerHeight="5" orient="auto">
+            <path d="M0,0 L10,5 L0,10 Z" fill="currentColor"/>
+          </marker>
+        </defs>
+        <line id="move-arrow-line" marker-end="url(#move-arrow-head)"/>`;
+      el.appendChild(svg);
+
       for (let i = 0; i < 9; i++) {
         const cell = document.createElement('div');
         cell.className = 'cell';
@@ -455,12 +719,69 @@
         cell.addEventListener('keydown', e => {
           if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(i); }
         });
+        cell.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') showMovePreview(i); });
+        cell.addEventListener('pointerleave', hideMovePreview);
+        cell.addEventListener('focus', () => showMovePreview(i));
+        cell.addEventListener('blur', hideMovePreview);
         el.appendChild(cell);
       }
     }
 
+    /* ─────────────────── Move preview (hover / focus) ─────────────────── */
+    function showMovePreview(targetIdx) {
+      const boardEl = document.getElementById('board');
+      hideMovePreview();
+      if (gameOver || isAnimating || board[targetIdx] !== null) return;
+
+      const q = queues[currentPlayer];
+      if (q.length < 3) return;
+
+      const fromCell = getCell(q[0]);
+      const toCell   = getCell(targetIdx);
+      const svg      = document.getElementById('move-line');
+      const line     = document.getElementById('move-arrow-line');
+      if (!fromCell || !toCell || !svg || !line || fromCell === toCell) return;
+
+      const bRect = svg.getBoundingClientRect();
+      const fRect = fromCell.getBoundingClientRect();
+      const tRect = toCell.getBoundingClientRect();
+      const size  = Math.min(fRect.width, fRect.height);
+
+      let x1 = fRect.left + fRect.width / 2 - bRect.left;
+      let y1 = fRect.top  + fRect.height / 2 - bRect.top;
+      let x2 = tRect.left + tRect.width / 2 - bRect.left;
+      let y2 = tRect.top  + tRect.height / 2 - bRect.top;
+
+      // Pull both ends toward the cell edges so the line clears the marks
+      const len = Math.hypot(x2 - x1, y2 - y1) || 1;
+      const ux  = (x2 - x1) / len;
+      const uy  = (y2 - y1) / len;
+      const pad = size * 0.44;
+      x1 += ux * pad;
+      y1 += uy * pad;
+      x2 -= ux * (pad + 4);
+      y2 -= uy * (pad + 4);
+
+      line.setAttribute('x1', x1);
+      line.setAttribute('y1', y1);
+      line.setAttribute('x2', x2);
+      line.setAttribute('y2', y2);
+
+      svg.classList.toggle('x', currentPlayer === 'X');
+      svg.classList.toggle('o', currentPlayer === 'O');
+      fromCell.classList.add('armed');
+      boardEl.classList.add('previewing');
+    }
+
+    function hideMovePreview() {
+      const boardEl = document.getElementById('board');
+      if (!boardEl) return;
+      boardEl.classList.remove('previewing');
+      boardEl.querySelectorAll('.cell.armed').forEach(c => c.classList.remove('armed'));
+    }
+
     function getCell(i) {
-      return document.getElementById('board').children[i];
+      return document.getElementById('board').querySelectorAll('.cell')[i];
     }
 
     /** Populate a cell element with a player mark (or clear it). */
@@ -483,10 +804,68 @@
         mark.addEventListener('animationend', () => cell.classList.remove('entering'), { once: true });
       }
 
+      if (opts.landing) {
+        cell.classList.add('landing');
+        mark.addEventListener('animationend', () => cell.classList.remove('landing'), { once: true });
+      }
+
       cell.appendChild(mark);
     }
 
-    /** Refresh ghost (about-to-vanish) highlight for both players' oldest marks. */
+    /**
+     * Animate a player's oldest mark travelling from `fromCell` to `toCell`.
+     * The source cell is emptied immediately; `done` runs once the mark lands.
+     */
+    function flyMark(fromCell, toCell, player, done) {
+      const reduced  = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const fromRect = fromCell.getBoundingClientRect();
+      const toRect   = toCell.getBoundingClientRect();
+      const dx       = toRect.left - fromRect.left;
+      const dy       = toRect.top  - fromRect.top;
+
+      // The mark lifts off: the source cell is empty for the rest of the trip
+      const fontSize = getComputedStyle(fromCell).fontSize;
+      setCellMark(fromCell, null);
+
+      const fly = document.createElement('div');
+      fly.className      = `fly-mark ${player.toLowerCase()}`;
+      fly.textContent    = player;
+      fly.style.left     = `${fromRect.left}px`;
+      fly.style.top      = `${fromRect.top}px`;
+      fly.style.width    = `${fromRect.width}px`;
+      fly.style.height   = `${fromRect.height}px`;
+      fly.style.fontSize = fontSize;
+      document.body.appendChild(fly);
+
+      const anim = fly.animate([
+        { transform: 'translate(0px, 0px) scale(1)',          opacity: 1 },
+        { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 26}px) scale(1.22)`, offset: 0.5 },
+        { transform: `translate(${dx}px, ${dy}px) scale(1)`,  opacity: 1 }
+      ], {
+        duration: reduced ? 1 : MOVE_MS,
+        easing:   'cubic-bezier(0.55, 0, 0.35, 1)',
+        fill:     'forwards'
+      });
+
+      flyAnim = anim;
+      flyEl   = fly;
+
+      anim.onfinish = () => {
+        fly.remove();
+        flyAnim = null;
+        flyEl   = null;
+        sfx.land();
+        done();
+      };
+    }
+
+    /** Abort a flight in progress (e.g. New Game pressed mid-animation). */
+    function cancelFlight() {
+      if (flyAnim) { flyAnim.cancel(); flyAnim = null; }
+      if (flyEl)   { flyEl.remove();   flyEl   = null; }
+    }
+
+    /** Refresh ghost (about-to-move) highlight for both players' oldest marks. */
     function refreshGhost() {
       for (let i = 0; i < 9; i++) getCell(i).classList.remove('ghost');
       if (gameOver) return;
@@ -509,75 +888,77 @@
     /* ─────────────────── Click handler ─────────────────── */
     function handleClick(idx) {
       if (gameOver || board[idx] !== null || isAnimating) return;
+      hideMovePreview();
 
-      const player    = currentPlayer;
-      const q         = queues[player];
-      const vanishIdx = q.length === 3 ? q[0] : null;
+      const player   = currentPlayer;
+      const q        = queues[player];
+      const moveFrom = q.length === 3 ? q[0] : null;
 
       // 1. Update board state: place new mark
       board[idx] = player;
       q.push(idx);
 
-      // 2. Remove oldest from state BEFORE win check so checkWin sees the final board
-      if (vanishIdx !== null) {
-        board[vanishIdx] = null;
+      // 2. Oldest mark relocates onto the new cell (its old cell is freed)
+      //    Removed from state BEFORE the win check so checkWin sees the final board
+      if (moveFrom !== null) {
+        board[moveFrom] = null;
         q.shift();
       }
 
       // 3. Win check on final board state
       const winLine = checkWin(player, board);
 
-      // 4. DOM: animate new mark entering
-      setCellMark(getCell(idx), player, { entering: true });
-
-      if (winLine) {
-        gameOver = true;
-        // DOM: animate vanish if one occurred (board state already cleared)
-        if (vanishIdx !== null) {
-          const vc = getCell(vanishIdx);
-          vc.classList.remove('ghost');
-          vc.classList.add('exiting');
-          setTimeout(() => setCellMark(vc, null), ANIM_MS);
-        }
-        refreshGhost();
-        renderQueues();
-        // Wait for enter/exit animations to finish before highlighting win cells
-        setTimeout(() => {
-          winLine.forEach(i => {
-            const c = getCell(i);
-            c.classList.remove('entering', 'ghost');
-            c.classList.add('win-cell');
-          });
-          showWin(player);
-        }, ANIM_MS);
+      // 4. Queue not full yet: plain placement with pop-in
+      if (moveFrom === null) {
+        setCellMark(getCell(idx), player, { entering: true });
+        sfx.place();
+        finishTurn(player, winLine);
         return;
       }
 
-      // 5. No win: animate DOM vanish if one occurred
-      if (vanishIdx !== null) {
-        isAnimating = true;
-        const vc = getCell(vanishIdx);
-        vc.classList.remove('ghost');
-        vc.classList.add('exiting');
+      // 5. Queue full: oldest mark flies across the board onto the chosen cell
+      isAnimating = true;
+      const fromCell = getCell(moveFrom);
+      const toCell   = getCell(idx);
 
-        renderQueues();
+      fromCell.classList.remove('ghost');
+      toCell.classList.add('occupied', player.toLowerCase()); // suppress hover preview
+      renderQueues();
+      sfx.takeoff();
 
-        setTimeout(() => {
-          setCellMark(vc, null);
-          isAnimating   = false;
-          currentPlayer = player === 'X' ? 'O' : 'X';
-          document.getElementById('board').dataset.player = currentPlayer;
-          refreshGhost();
-          renderTurnIndicator();
-          renderQueues();
-        }, ANIM_MS);
-      } else {
-        currentPlayer = player === 'X' ? 'O' : 'X';
-        document.getElementById('board').dataset.player = currentPlayer;
+      flyMark(fromCell, toCell, player, () => {
+        setCellMark(toCell, player, { landing: true });
+        isAnimating = false;
+        finishTurn(player, winLine);
+      });
+    }
+
+    /** Shared tail of a turn: highlight the win, or hand over to the other player. */
+    function finishTurn(player, winLine) {
+      if (winLine) {
+        gameOver = true;
+        recordWin(player);
+        sfx.win();
         refreshGhost();
-        renderTurnIndicator();
         renderQueues();
+        winLine.forEach(i => {
+          const c = getCell(i);
+          c.classList.remove('entering', 'landing', 'ghost');
+          c.classList.add('win-cell');
+        });
+        // Let the winning line blink on the board before the overlay covers it
+        winTimer = setTimeout(() => {
+          winTimer = null;
+          if (gameOver) showWin(player);
+        }, WIN_HOLD_MS);
+        return;
       }
+
+      currentPlayer = player === 'X' ? 'O' : 'X';
+      document.getElementById('board').dataset.player = currentPlayer;
+      refreshGhost();
+      renderTurnIndicator();
+      renderQueues();
     }
 
     /* ─────────────────── UI Renderers ─────────────────── */
@@ -615,9 +996,8 @@
         return;
       }
 
-      // When queue momentarily has 4 items (mid-animation), display the 3 that will remain.
-      // This gives an instant preview of the post-vanish state.
-      const display = q.length > 3 ? q.slice(1) : q;
+      // Queue state is final before rendering — the relocated mark sits at the end
+      const display = q;
 
       display.forEach((cellIdx, i) => {
         if (i > 0) {
@@ -631,7 +1011,7 @@
         badge.className = `q-badge ${player === 'X' ? 'xb' : 'ob'}`;
         badge.textContent = player;
 
-        // Oldest badge: dashed & faded — marks which cell vanishes NEXT
+        // Oldest badge: dashed & faded — marks which cell moves NEXT
         if (i === 0 && display.length === 3) {
           badge.classList.add('oldest');
         }
@@ -647,11 +1027,11 @@
 
       // Hint text below the queue row
       if (display.length === 3) {
-        hint.textContent = `\u2190 cell ${display[0] + 1} vanishes next`;
+        hint.textContent = `\u2190 cell ${display[0] + 1} moves next`;
         hint.className = `q-hint warn ${lc}c`;
       } else {
         const left = 3 - display.length;
-        hint.textContent = `${left} more mark${left > 1 ? 's' : ''} until vanishing starts`;
+        hint.textContent = `${left} more mark${left > 1 ? 's' : ''} until marks start moving`;
         hint.className = `q-hint ${lc}c`;
       }
     }
@@ -666,6 +1046,8 @@
       document.getElementById('win-title').textContent = `Player ${player} Wins!`;
       document.getElementById('win-title').className   = `win-title ${lc}`;
       document.getElementById('win-sub').textContent   = quip;
+      document.getElementById('win-next').textContent  =
+        `${starter === 'X' ? 'O' : 'X'} starts the next game`;
 
       const card = document.getElementById('win-card');
       card.className = 'win-card ' + lc;
@@ -674,23 +1056,41 @@
         ? '0 0 50px var(--x-glow)'
         : '0 0 50px var(--o-glow)';
 
-      setTimeout(() => document.getElementById('win-overlay').classList.add('show'), 150);
+      setTimeout(() => {
+        if (gameOver) document.getElementById('win-overlay').classList.add('show');
+      }, 150);
     }
 
     /* ─────────────────── Reset ─────────────────── */
     function resetGame() {
+      cancelFlight();
+      clearTimeout(winTimer);
+      winTimer = null;
+      hideMovePreview();
       document.getElementById('win-overlay').classList.remove('show');
+
+      // Alternate who makes the first move of each new game
+      starter = starter === 'X' ? 'O' : 'X';
+      writeStore(STORE.starter, starter);
+
       initState();
       buildBoard();
       renderTurnIndicator();
       renderQueues();
+      renderScore();
     }
 
     /* ─────────────────── Boot ─────────────────── */
+    loadMeta();
     initState();
     buildBoard();
     renderTurnIndicator();
     renderQueues();
+    renderScore();
+    setSound(soundOn, false);
+
+    document.getElementById('new-game').addEventListener('click', resetGame);
+    document.getElementById('sound-toggle').addEventListener('click', () => setSound(!soundOn));
   </script>
 </body>
 </html>

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Single-file browser game: a twist on Tic Tac Toe where each player can hold at most **3 marks** on the board at any time. Placing a 4th mark removes the oldest one (FIFO queue). One external dependency: **Google Fonts (Quicksand)** loaded via `<link>` in `<head>`.
+Single-file browser game: a twist on Tic Tac Toe where each player can hold at most **3 marks** on the board at any time. Placing a 4th mark **moves the oldest one onto the newly chosen cell** (FIFO queue) — the mark visibly flies across the board instead of disappearing. One external dependency: **Google Fonts (Quicksand)** loaded via `<link>` in `<head>`.
 
 ## File Structure
 
@@ -15,8 +15,8 @@ Vanishing Tic Tac Toe/
 
 - Standard 3×3 grid, 2 players (X and O)
 - Each player has a FIFO queue of their placed marks (max 3)
-- On the 4th placement, queue[0] (oldest) is removed from the board, freeing that cell
-- **Win check happens AFTER the oldest mark is removed** — `board[]` and `queues[]` are updated to final state first, then `checkWin()` runs; the DOM animation follows after
+- On the 4th placement, queue[0] (oldest) **relocates onto the chosen cell** — its old cell is freed and the mark animates across the board. Final board state is identical to "remove oldest + place new"
+- **Win check happens AFTER the oldest mark is moved** — `board[]` and `queues[]` are updated to final state first, then `checkWin()` runs; the flight animation follows after
 - No draw condition — cells are always freed, so the game always ends with a win
 
 ## Architecture (JavaScript)
@@ -28,48 +28,71 @@ board         // Array(9).fill(null) — 'X', 'O', or null per cell
 queues        // { X: [...cellIndices], O: [...cellIndices] } — oldest first
 currentPlayer // 'X' | 'O'
 gameOver      // boolean
-isAnimating   // boolean — blocks clicks during vanish animation
+isAnimating   // boolean — blocks clicks during the mark's flight
+wins          // { X: number, O: number } — match score, persisted
+starter       // 'X' | 'O' — who makes the first move of the current game
+soundOn       // boolean — muted state, persisted
+audioCtx      // lazily created AudioContext | null
+flyAnim, flyEl// active WAAPI animation + its DOM clone (for cancelFlight)
+winTimer      // id of the pending showWin() timeout
 ```
 
 ### Key Functions
 
 | Function | Purpose |
 |---|---|
-| `initState()` | Resets all state variables |
-| `buildBoard()` | Creates 9 `.cell` div elements in `#board` |
-| `handleClick(idx)` | Core game logic — place, check win, animate vanish, switch turn |
-| `setCellMark(cell, player, opts)` | Sets or clears a cell's DOM content |
+| `initState()` | Resets all state variables (`currentPlayer = starter`) |
+| `buildBoard()` | Creates the `#move-line` SVG + 9 `.cell` divs; attaches click, key, hover and focus handlers |
+| `handleClick(idx)` | Core game logic — place, check win, fly the oldest mark, then `finishTurn()` |
+| `finishTurn(player, winLine)` | Shared turn tail — record win + highlight, or switch player and re-render |
+| `flyMark(fromCell, toCell, player, done)` | Animates the oldest mark travelling to the new cell (WAAPI), then calls `done` |
+| `cancelFlight()` | Aborts an in-progress flight (New Game pressed mid-animation) |
+| `setCellMark(cell, player, opts)` | Sets or clears a cell's DOM content (`opts.entering` / `opts.landing`) |
+| `showMovePreview(idx)` | Draws the dashed arrow from the oldest mark to a hovered/focused empty cell |
+| `hideMovePreview()` | Clears `.previewing` / `.armed` and hides the arrow |
 | `refreshGhost()` | Adds `.ghost` class to **both** players' oldest cells (if their queue is full) |
 | `checkWin(player, board)` | Returns winning line array or null |
 | `renderTurnIndicator()` | Updates the pill at the top |
-| `renderQueues()` | Re-renders both queue panels |
-| `renderPlayerQueue(player)` | Renders one player's queue badges + hint text |
-| `showWin(player)` | Populates and reveals the win overlay |
-| `resetGame()` | Hides overlay, re-inits state, rebuilds board |
+| `renderQueues()` / `renderPlayerQueue(player)` | Renders queue badges + hint text |
+| `renderScore(bumpPlayer)` | Fills every `[data-wins]` element; optional bump animation for the scorer |
+| `recordWin(player)` | Increments the score, persists it, re-renders |
+| `showWin(player)` | Populates and reveals the win overlay (score + who starts next) |
+| `resetGame()` | Cancels flight/timer, alternates `starter`, re-inits state, rebuilds board |
+| `loadMeta()` / `readStore()` / `writeStore()` | localStorage persistence (wrapped in try/catch) |
+| `setSound(on, persist)` | Mute toggle — syncs button state, aria attributes and storage |
+| `tone()` / `sfx` | Tiny WebAudio synth: `place`, `takeoff`, `land`, `win` |
+
+> `getCell(i)` uses `#board.querySelectorAll('.cell')[i]` (not `children[i]`) because the preview SVG is the board's first child.
 
 ### Click Flow
 
 ```
 handleClick(idx)
   ├── guard: gameOver || cell occupied || isAnimating → return
-  ├── determine vanishIdx = queues[player][0] if queue.length === 3
+  ├── hideMovePreview()
+  ├── determine moveFrom = queues[player][0] if queue.length === 3
   ├── [STATE] board[idx] = player, queue.push(idx)
-  ├── [STATE] if vanishIdx: board[vanishIdx] = null, queue.shift()   ← BEFORE win check
+  ├── [STATE] if moveFrom: board[moveFrom] = null, queue.shift()   ← BEFORE win check
   ├── checkWin(player, board)   ← sees final board state
-  ├── [DOM]   setCellMark(new cell, entering: true)   ← pop-in animation
-  ├── if win:
-  │     if vanishIdx: add .exiting to vanish cell, clear DOM after ANIM_MS
-  │     refreshGhost(), renderQueues()
-  │     setTimeout(ANIM_MS): highlight win cells, showWin()  → return
-  ├── if vanishIdx (no win):
+  ├── if moveFrom === null (plain placement):
+  │     setCellMark(cell, entering: true)    ← pop-in animation
+  │     sfx.place()
+  │     finishTurn()
+  ├── if moveFrom (4th mark):
   │     isAnimating = true
-  │     add .exiting to vanish cell   ← pop-out animation
-  │     renderQueues() immediately
-  │     setTimeout(ANIM_MS):
-  │       setCellMark(vanish cell, null)
-  │       isAnimating = false
-  │       switch currentPlayer, refreshGhost, render UI
-  └── else: switch currentPlayer, refreshGhost, render UI
+  │     fromCell: remove .ghost, clear DOM (mark "lifts off")
+  │     toCell:   add .occupied + color class (suppress hover preview, show target)
+  │     renderQueues(), sfx.takeoff()
+  │     flyMark(fromCell, toCell, player, done)
+  │       └── WAAPI: from → arc (lift + scale 1.22) → to, duration MOVE_MS (460ms)
+  │           destination positioned via getBoundingClientRect + transform translate
+  │     done(): setCellMark(toCell, landing: true), isAnimating = false, finishTurn()
+  └── finishTurn(player, winLine):
+        if win: gameOver = true, recordWin(player), sfx.win(), refreshGhost(),
+                renderQueues(), add .win-cell to line,
+                winTimer = setTimeout(showWin, WIN_HOLD_MS)
+        else:  switch currentPlayer, update #board[data-player],
+                refreshGhost(), renderTurnIndicator(), renderQueues()
 ```
 
 ## CSS Design Tokens
@@ -94,24 +117,28 @@ handleClick(idx)
 | Class | Effect |
 |---|---|
 | `.entering` | `pop-in`: scale 0 → 1.22 → 1 with slight rotate, spring curve |
-| `.exiting` | `pop-out`: scale 1 → 1.25 → 0, ease-in |
+| `.landing` | `land-pop`: scale 1.28 → 0.92 → 1, plays when a relocated mark arrives |
 | `.ghost` | `vanish-pulse`: opacity oscillates 1 → 0.18 → 1 (1.1s loop) |
 | `.win-cell` | `win-pulse`: scale 1 → 1.1 → 1 (0.65s loop) + colored box-shadow |
 
-Entering animation is removed via `animationend` listener to avoid conflicting with `.ghost` if that cell later becomes the oldest.
+Animations are removed via `animationend` listeners to avoid conflicting with `.ghost` if that cell later becomes the oldest.
+
+### Move Animation (4th mark)
+
+`flyMark()` clones the mark into a `position: fixed` `.fly-mark` element sized/positioned over the source cell, clears the source cell, and animates it with WAAPI (`element.animate()`): start → midpoint offset by `-26px` on the Y axis with `scale(1.22)` (arc + lift) → destination, over `MOVE_MS = 460ms`. On `onfinish` the clone is removed, the mark is placed on the destination with `.landing`, and the turn continues. Under `prefers-reduced-motion` the duration collapses to `1ms`. `isAnimating` blocks input for the whole flight.
 
 All animations respect `@media (prefers-reduced-motion: reduce)` — durations collapse to `0.01ms`.
 
 ## Queue Panel Display
 
 - Shows badges oldest → newest, each with a superscript cell number (1–9)
-- When `queue.length === 3`: oldest badge goes dashed + faded, hint shows `← cell N vanishes next`
-- During animation (`queue.length === 4`): displays `queue.slice(1)` — the 3 marks that will remain after vanish — so the UI reflects the post-animation state instantly
+- When `queue.length === 3`: oldest badge goes dashed + faded, hint shows `← cell N moves next`
+- During a move the displayed queue is already the post-move state (the relocated mark sits at the end)
 - Both players' queues are always visible; active player's card has a glowing border
 
-## Ghost (About-to-Vanish) Highlight
+## Ghost (About-to-Move) Highlight
 
-**Both players'** oldest marks are ghosted simultaneously whenever their respective queues are full. This lets each player always see what they stand to lose, regardless of whose turn it is. `refreshGhost()` iterates over `['X', 'O']` and adds `.ghost` to `queues[p][0]` for each player with `queue.length === 3`.
+**Both players'** oldest marks are ghosted simultaneously whenever their respective queues are full. This lets each player always see which mark will relocate on their next move, regardless of whose turn it is. `refreshGhost()` iterates over `['X', 'O']` and adds `.ghost` to `queues[p][0]` for each player with `queue.length === 3`.
 
 ## Hover Preview
 
@@ -122,14 +149,59 @@ All animations respect `@media (prefers-reduced-motion: reduce)` — durations c
 
 `data-player` on `#board` is updated on every turn switch.
 
+### Move-preview arrow (queue full only)
+
+While the current player's queue is full, hovering (mouse) or focusing an empty cell previews the relocation:
+
+- `showMovePreview(idx)` — only when `!gameOver && !isAnimating && board[idx] === null` and `queues[currentPlayer].length === 3`
+- Draws a dashed line in `#move-line` (absolute SVG, `z-index: 2`, `pointer-events: none`) from the oldest mark's centre to the hovered cell's centre; both endpoints are pulled toward the cell edges via `pad = cellSize * 0.44` so the arrow doesn't sit on the marks
+- Coordinates are computed with `getBoundingClientRect()` relative to the SVG's own rect
+- Adds `.armed` to the source cell (stops the ghost pulse, scales the mark 1.1×, dashed frame + glow) and `.previewing` to `#board`
+- Triggered on `pointerenter` (mouse only — `e.pointerType === 'mouse'`), `focus`, and hidden on `pointerleave`, `blur`, click and reset
+- Arrow color comes from `#move-line.x` / `#move-line.o` (`currentColor` also fills the SVG marker)
+
+## Top Bar
+
+`#topbar` is a `1fr auto 1fr` grid the width of the board, so the turn pill stays centred while two round `.btn-icon` buttons sit on the right:
+
+- **Sound toggle** (`#sound-toggle`) — swaps `.snd-on` / `.snd-off` SVGs via the `.muted` class, updates `aria-pressed` / `aria-label`, persists to `localStorage`
+- **New Game** (`#new-game`) — always available (not just on the win screen); calls `resetGame()`
+
+## Score & Persistence
+
+- Wins are shown in each queue header (`[data-wins]` in `.q-wins`) and again on the win card; `recordWin()` bumps the scorer's number with the `score-bump` animation
+- `starter` alternates **every new game** (`resetGame()` flips it), so neither player always moves first
+- `localStorage` keys (all reads/writes wrapped in try/catch, so private mode / file:// failures are harmless):
+  - `vxo:wins` — JSON `{ "X": n, "O": n }`
+  - `vxo:starter` — `'X' | 'O'`
+  - `vxo:sound` — `'1' | '0'` (missing = on)
+- Persisted state is loaded by `loadMeta()` before `initState()` at boot
+
+## Sound
+
+Procedural WebAudio only — no audio files:
+
+- `getAudio()` lazily creates/resumes the `AudioContext` on first user gesture; returns `null` while muted
+- `tone(freq, { to, dur, gain, type, delay })` builds a short envelope around one oscillator
+- `sfx.place` (plain placement), `sfx.takeoff` (mark lifts off), `sfx.land` (mark arrives), `sfx.win` (4-note arpeggio)
+- `setSound(on, persist)` is the single entry point for mute state (button, aria, storage)
+
 ## Win Screen
 
 - Sliding card with spring animation (`cubic-bezier(0.34,1.56,0.64,1)`)
 - Shimmer gradient button with `background-position` animation
-- Win check fires **after** oldest mark removal from state; card appears after `ANIM_MS` delay so both entering and exiting DOM animations finish first
+- Win check fires **after** the oldest mark relocates in state; the highlight is applied once the flight finishes (`flyMark` callback), so the arriving mark is visible
+- The overlay is delayed by `WIN_HOLD_MS = 2200ms` so the winning line keeps blinking on the board first (plus `showWin`'s own 150ms fade-in delay)
 - Random quip from `QUIPS[player]` array per win
+- Shows the running match score and who starts the next game
 - `.win-card` gets class `x` or `o` on win — used by `::before` pseudo-element to add a subtle radial glow in the winner's color (opacity 0.06)
 - `showWin()` sets `card.className = 'win-card ' + lc` to apply the color class
+
+## Edge Cases Handled
+
+- **New Game during a flight** → `cancelFlight()` cancels the WAAPI animation and removes the clone; `onfinish` doesn't fire, so no stale mark is placed
+- **New Game during the win hold** → `winTimer` is cleared and `showWin()` + the overlay's 150ms timer both check `gameOver`
+- **Clicks during a flight** → blocked by `isAnimating`
 
 ## Responsiveness
 
@@ -141,7 +213,9 @@ All animations respect `@media (prefers-reduced-motion: reduce)` — durations c
 
 - All 9 cells have `tabindex="0"` — keyboard users can Tab through the board
 - `keydown` listener on each cell: Enter or Space triggers `handleClick(i)`
-- `:focus-visible` rings on cells (`#7070b0`) and the replay button (`rgba(255,255,255,0.7)`)
+- Focusing an empty cell previews the relocation arrow, same as hover
+- Turn pill has `aria-live="polite"`; icon buttons carry `aria-label` + `title`, and the sound toggle exposes `aria-pressed`
+- `:focus-visible` rings on cells (`#7070b0`), icon buttons and the replay button (`rgba(255,255,255,0.7)`)
 - `@media (prefers-reduced-motion: reduce)` disables all animations and transitions
 
 ## Background
