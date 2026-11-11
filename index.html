@@ -327,6 +327,46 @@
     }
     .q-wins.bump { animation: score-bump 0.5s cubic-bezier(0.34,1.56,0.64,1); }
 
+    /* ── Mode / difficulty controls ── */
+    #controls {
+      display: flex;
+      gap: 8px;
+      justify-content: center;
+      flex-wrap: wrap;
+      width: min(330px, 92vw);
+    }
+    .seg {
+      display: flex;
+      gap: 2px;
+      padding: 2px;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: 99px;
+    }
+    .seg[hidden] { display: none; }
+    .seg button {
+      border: 0;
+      background: transparent;
+      color: var(--muted);
+      font: inherit;
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 6px 11px;
+      border-radius: 99px;
+      cursor: pointer;
+      transition: background .2s, color .2s, box-shadow .2s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .seg button:hover { color: var(--text); }
+    .seg button.active {
+      background: var(--surface2);
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px var(--border);
+    }
+    .seg button:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
+
     .q-row {
       display: flex;
       align-items: center;
@@ -536,14 +576,26 @@
 
   <div id="board" data-player="X"></div>
 
+  <div id="controls">
+    <div class="seg" role="group" aria-label="Game mode">
+      <button type="button" data-mode="2p" class="active" aria-pressed="true">2 Players</button>
+      <button type="button" data-mode="ai" aria-pressed="false">vs Computer</button>
+    </div>
+    <div class="seg" id="diff-seg" role="group" aria-label="Computer difficulty" hidden>
+      <button type="button" data-diff="easy" aria-pressed="false">Easy</button>
+      <button type="button" data-diff="medium" class="active" aria-pressed="true">Medium</button>
+      <button type="button" data-diff="hard" aria-pressed="false">Hard</button>
+    </div>
+  </div>
+
   <div id="queues">
     <div class="q-card xc active" id="qcard-x">
-      <div class="q-header"><span>&#10005; Player X</span><span class="q-wins" data-wins="X">0</span></div>
+      <div class="q-header"><span id="qlabel-x">&#10005; Player X</span><span class="q-wins" data-wins="X">0</span></div>
       <div class="q-row" id="qrow-x"></div>
       <div class="q-hint xc" id="qhint-x"></div>
     </div>
     <div class="q-card oc" id="qcard-o">
-      <div class="q-header"><span>&#9711; Player O</span><span class="q-wins" data-wins="O">0</span></div>
+      <div class="q-header"><span id="qlabel-o">&#9711; Player O</span><span class="q-wins" data-wins="O">0</span></div>
       <div class="q-row" id="qrow-o"></div>
       <div class="q-hint oc" id="qhint-o"></div>
     </div>
@@ -579,7 +631,14 @@
     const ANIM_MS = 340;
     const MOVE_MS = 460;
     const WIN_HOLD_MS = 2200;   // how long the winning line blinks before the overlay
-    const STORE = { wins: 'vxo:wins', starter: 'vxo:starter', sound: 'vxo:sound' };
+    const AI_PLAYER = 'O';
+    const HUMAN_PLAYER = 'X';
+    const AI_DELAY = 450;       // "thinking" pause before the computer moves
+    const SEARCH_DEPTH = { easy: 1, medium: 3, hard: 6 };
+    const STORE = {
+      wins: 'vxo:wins', starter: 'vxo:starter', sound: 'vxo:sound',
+      mode: 'vxo:mode', diff: 'vxo:diff'
+    };
     const QUIPS = {
       X: ['Brilliant play, X!', 'X dominates the grid!', 'Nice move, X!', 'X claims the win!'],
       O: ['O takes the crown!',  'Impressive, O!',        'O strikes true!',  'Well played, O!']
@@ -589,6 +648,7 @@
     let board, queues, currentPlayer, gameOver, isAnimating;
     let wins, starter, soundOn, audioCtx = null;
     let flyAnim = null, flyEl = null, winTimer = null;
+    let mode = '2p', difficulty = 'medium', aiThinking = false, aiTimer = null;
 
     function initState() {
       board          = Array(9).fill(null);
@@ -619,6 +679,9 @@
       }
       starter  = readStore(STORE.starter) === 'O' ? 'O' : 'X';
       soundOn  = readStore(STORE.sound) !== '0';
+      mode     = readStore(STORE.mode) === 'ai' ? 'ai' : '2p';
+      const diff = readStore(STORE.diff);
+      difficulty = (diff === 'easy' || diff === 'hard') ? diff : 'medium';
     }
 
     /* ─────────────────── Sound ─────────────────── */
@@ -715,9 +778,13 @@
         cell.className = 'cell';
         cell.dataset.num = i + 1;
         cell.setAttribute('tabindex', '0');
-        cell.addEventListener('click', () => handleClick(i));
+        cell.addEventListener('click', () => { if (aiThinking) return; handleClick(i); });
         cell.addEventListener('keydown', e => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(i); }
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (aiThinking) return;
+            handleClick(i);
+          }
         });
         cell.addEventListener('pointerenter', e => { if (e.pointerType === 'mouse') showMovePreview(i); });
         cell.addEventListener('pointerleave', hideMovePreview);
@@ -731,7 +798,9 @@
     function showMovePreview(targetIdx) {
       const boardEl = document.getElementById('board');
       hideMovePreview();
-      if (gameOver || isAnimating || board[targetIdx] !== null) return;
+      if (gameOver || isAnimating || aiThinking) return;
+      if (mode === 'ai' && currentPlayer === AI_PLAYER) return;
+      if (board[targetIdx] !== null) return;
 
       const q = queues[currentPlayer];
       if (q.length < 3) return;
@@ -885,6 +954,182 @@
       return null;
     }
 
+    /* ─────────────────── Computer player ─────────────────── */
+    function otherPlayer(p) {
+      return p === 'X' ? 'O' : 'X';
+    }
+
+    function aiStateKey(state) {
+      return state.board.map(v => v || '-').join('') + '|' +
+             state.queues.X.join(',') + '|' + state.queues.O.join(',');
+    }
+
+    /** Pure move application — used by the search, never touches live state. */
+    function aiApplyMove(state, player, idx) {
+      const nextBoard = state.board.slice();
+      const nextX     = state.queues.X.slice();
+      const nextO     = state.queues.O.slice();
+      const q         = player === 'X' ? nextX : nextO;
+
+      nextBoard[idx] = player;
+      q.push(idx);
+      if (q.length > 3) {
+        nextBoard[q[0]] = null;
+        q.shift();
+      }
+      return { board: nextBoard, queues: { X: nextX, O: nextO } };
+    }
+
+    /**
+     * Static evaluation from the computer's point of view.
+     * Two-in-a-line is valuable, but much less so when one of the two marks
+     * is a full player's oldest mark — it relocates on their next move.
+     */
+    function aiEvaluate(state) {
+      const oldest = { X: state.queues.X[0], O: state.queues.O[0] };
+      const full   = {
+        X: state.queues.X.length === 3,
+        O: state.queues.O.length === 3
+      };
+      let score = 0;
+
+      for (const line of WIN_LINES) {
+        let aiCount = 0, humanCount = 0;
+        for (const i of line) {
+          if (state.board[i] === AI_PLAYER) aiCount++;
+          else if (state.board[i] === HUMAN_PLAYER) humanCount++;
+        }
+        if (aiCount && humanCount) continue;
+
+        if (aiCount === 2)      score += (full.O && line.includes(oldest.O)) ? 5 : 16;
+        else if (aiCount === 1) score += 2;
+
+        if (humanCount === 2)      score -= (full.X && line.includes(oldest.X)) ? 5 : 16;
+        else if (humanCount === 1) score -= 2;
+      }
+
+      if (state.board[4] === AI_PLAYER) score += 4;
+      else if (state.board[4] === HUMAN_PLAYER) score -= 4;
+
+      return score;
+    }
+
+    /** Center first, then corners, then edges — cheap alpha-beta ordering. */
+    function aiOrderMoves(state) {
+      const moves = [];
+      for (let i = 0; i < 9; i++) if (state.board[i] === null) moves.push(i);
+      const rank = i => (i === 4 ? 3 : i % 2 === 0 ? 2 : 1);
+      moves.sort((a, b) => rank(b) - rank(a));
+      return moves;
+    }
+
+    /**
+     * Depth-limited minimax with alpha-beta pruning.
+     * `seen` holds the state keys on the current path, so a position that
+     * repeats (possible because marks relocate) is scored as neutral instead
+     * of recursing forever.
+     */
+    function aiSearch(state, player, depth, alpha, beta, seen, deadline) {
+      if (depth <= 0 || Date.now() > deadline) return aiEvaluate(state);
+
+      const key = aiStateKey(state);
+      if (seen.has(key)) return 0;
+      seen.add(key);
+
+      let best = player === AI_PLAYER ? -Infinity : Infinity;
+
+      for (const idx of aiOrderMoves(state)) {
+        const next = aiApplyMove(state, player, idx);
+        let value;
+
+        if (checkWin(player, next.board)) {
+          value = player === AI_PLAYER ? 10000 + depth : -10000 - depth;
+        } else {
+          value = aiSearch(next, otherPlayer(player), depth - 1, alpha, beta, seen, deadline);
+        }
+
+        if (player === AI_PLAYER) {
+          if (value > best) best = value;
+          if (best > alpha) alpha = best;
+        } else {
+          if (value < best) best = value;
+          if (best < beta) beta = best;
+        }
+
+        if (alpha >= beta) break;
+        if (Math.abs(value) >= 10000) break;   // a win is already the best possible
+      }
+
+      seen.delete(key);
+      return best;
+    }
+
+    /** Pick the computer's move for the current live state. */
+    function chooseAIMove() {
+      const state = {
+        board:  board.slice(),
+        queues: { X: queues.X.slice(), O: queues.O.slice() }
+      };
+
+      const empty = [];
+      for (let i = 0; i < 9; i++) if (state.board[i] === null) empty.push(i);
+      if (empty.length === 0) return null;
+
+      // Never pass up an immediate win, even on Easy
+      for (const idx of empty) {
+        if (checkWin(AI_PLAYER, aiApplyMove(state, AI_PLAYER, idx).board)) return idx;
+      }
+
+      const blunder = difficulty === 'easy' ? 0.35 : difficulty === 'medium' ? 0.1 : 0;
+      if (Math.random() < blunder) return empty[Math.floor(Math.random() * empty.length)];
+
+      const depth    = SEARCH_DEPTH[difficulty];
+      const deadline = Date.now() + 250;
+      const seen     = new Set([aiStateKey(state)]);
+      let best = -Infinity;
+      let bestMoves = [];
+
+      for (const idx of empty) {
+        const next  = aiApplyMove(state, AI_PLAYER, idx);
+        const value = aiSearch(next, HUMAN_PLAYER, depth - 1, -Infinity, Infinity, seen, deadline);
+
+        if (value > best)       { best = value; bestMoves = [idx]; }
+        else if (value === best) bestMoves.push(idx);
+      }
+
+      return bestMoves[Math.floor(Math.random() * bestMoves.length)];
+    }
+
+    /** Schedule the computer's move when it is its turn. */
+    function maybeRunAI() {
+      clearTimeout(aiTimer);
+      aiTimer = null;
+
+      const aiTurn = mode === 'ai' && currentPlayer === AI_PLAYER && !gameOver && !isAnimating;
+
+      if (!aiTurn) {
+        if (aiThinking) { aiThinking = false; renderTurnIndicator(); }
+        return;
+      }
+
+      aiThinking = true;
+      hideMovePreview();
+      renderTurnIndicator();
+
+      aiTimer = setTimeout(() => {
+        aiTimer = null;
+        if (mode !== 'ai' || gameOver || currentPlayer !== AI_PLAYER) {
+          aiThinking = false;
+          renderTurnIndicator();
+          return;
+        }
+        const idx = chooseAIMove();
+        aiThinking = false;
+        if (idx === null) renderTurnIndicator();
+        else handleClick(idx);
+      }, AI_DELAY);
+    }
+
     /* ─────────────────── Click handler ─────────────────── */
     function handleClick(idx) {
       if (gameOver || board[idx] !== null || isAnimating) return;
@@ -941,6 +1186,13 @@
         sfx.win();
         refreshGhost();
         renderQueues();
+
+        const ti = document.getElementById('turn-indicator');
+        ti.className = player.toLowerCase();
+        ti.textContent = (mode === 'ai' && player === AI_PLAYER)
+          ? 'Computer Wins!'
+          : `Player ${player} Wins!`;
+
         winLine.forEach(i => {
           const c = getCell(i);
           c.classList.remove('entering', 'landing', 'ghost');
@@ -959,13 +1211,35 @@
       refreshGhost();
       renderTurnIndicator();
       renderQueues();
+      maybeRunAI();
     }
 
     /* ─────────────────── UI Renderers ─────────────────── */
     function renderTurnIndicator() {
-      const el = document.getElementById('turn-indicator');
-      el.className = currentPlayer.toLowerCase();
-      el.textContent = `Player ${currentPlayer}\u2019s Turn`;
+      const el      = document.getElementById('turn-indicator');
+      const aiTurn  = mode === 'ai' && currentPlayer === AI_PLAYER;
+      el.className  = currentPlayer.toLowerCase();
+      el.textContent = aiTurn
+        ? (aiThinking ? 'Computer thinking\u2026' : 'Computer\u2019s Turn')
+        : `Player ${currentPlayer}\u2019s Turn`;
+    }
+
+    /** Sync mode/difficulty buttons and the player labels. */
+    function renderModeUI() {
+      document.querySelectorAll('[data-mode]').forEach(btn => {
+        const on = btn.dataset.mode === mode;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-pressed', String(on));
+      });
+      document.querySelectorAll('[data-diff]').forEach(btn => {
+        const on = btn.dataset.diff === difficulty;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-pressed', String(on));
+      });
+      document.getElementById('diff-seg').hidden = mode !== 'ai';
+      document.getElementById('qlabel-x').textContent = '\u2715 Player X';
+      document.getElementById('qlabel-o').textContent =
+        mode === 'ai' ? '\u25EF Computer' : '\u25EF Player O';
     }
 
     function renderQueues() {
@@ -1040,14 +1314,20 @@
     function showWin(player) {
       const lc    = player.toLowerCase();
       const quip  = QUIPS[player][Math.floor(Math.random() * QUIPS[player].length)];
+      const isAI  = mode === 'ai' && player === AI_PLAYER;
 
       document.getElementById('win-mark').textContent  = player;
       document.getElementById('win-mark').className    = `win-mark ${lc}`;
-      document.getElementById('win-title').textContent = `Player ${player} Wins!`;
+      document.getElementById('win-title').textContent = isAI ? 'Computer Wins!' : `Player ${player} Wins!`;
       document.getElementById('win-title').className   = `win-title ${lc}`;
       document.getElementById('win-sub').textContent   = quip;
-      document.getElementById('win-next').textContent  =
-        `${starter === 'X' ? 'O' : 'X'} starts the next game`;
+
+      const next      = starter === 'X' ? 'O' : 'X';
+      const nextLabel = mode === 'ai'
+        ? (next === AI_PLAYER ? 'Computer' : 'You')
+        : `Player ${next}`;
+      document.getElementById('win-next').textContent =
+        `${nextLabel} start${nextLabel === 'You' ? '' : 's'} the next game`;
 
       const card = document.getElementById('win-card');
       card.className = 'win-card ' + lc;
@@ -1066,6 +1346,9 @@
       cancelFlight();
       clearTimeout(winTimer);
       winTimer = null;
+      clearTimeout(aiTimer);
+      aiTimer = null;
+      aiThinking = false;
       hideMovePreview();
       document.getElementById('win-overlay').classList.remove('show');
 
@@ -1078,6 +1361,7 @@
       renderTurnIndicator();
       renderQueues();
       renderScore();
+      maybeRunAI();
     }
 
     /* ─────────────────── Boot ─────────────────── */
@@ -1087,10 +1371,32 @@
     renderTurnIndicator();
     renderQueues();
     renderScore();
+    renderModeUI();
     setSound(soundOn, false);
 
     document.getElementById('new-game').addEventListener('click', resetGame);
     document.getElementById('sound-toggle').addEventListener('click', () => setSound(!soundOn));
+
+    document.querySelectorAll('[data-mode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (mode === btn.dataset.mode) return;
+        mode = btn.dataset.mode;
+        writeStore(STORE.mode, mode);
+        renderModeUI();
+        resetGame();               // mode changes always start a fresh game
+      });
+    });
+
+    document.querySelectorAll('[data-diff]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (difficulty === btn.dataset.diff) return;
+        difficulty = btn.dataset.diff;
+        writeStore(STORE.diff, difficulty);
+        renderModeUI();
+      });
+    });
+
+    maybeRunAI();
   </script>
 </body>
 </html>

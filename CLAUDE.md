@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Single-file browser game: a twist on Tic Tac Toe where each player can hold at most **3 marks** on the board at any time. Placing a 4th mark **moves the oldest one onto the newly chosen cell** (FIFO queue) — the mark visibly flies across the board instead of disappearing. One external dependency: **Google Fonts (Quicksand)** loaded via `<link>` in `<head>`.
+Single-file browser game: a twist on Tic Tac Toe where each player can hold at most **3 marks** on the board at any time. Placing a 4th mark **moves the oldest one onto the newly chosen cell** (FIFO queue) — the mark visibly flies across the board instead of disappearing. Playable hot-seat (2 players) or against a **local minimax computer opponent** (Easy / Medium / Hard). One external dependency: **Google Fonts (Quicksand)** loaded via `<link>` in `<head>`.
 
 ## File Structure
 
@@ -13,7 +13,7 @@ Vanishing Tic Tac Toe/
 
 ## Game Rules
 
-- Standard 3×3 grid, 2 players (X and O)
+- Standard 3×3 grid, 2 players (X and O) — hot-seat or against the local computer
 - Each player has a FIFO queue of their placed marks (max 3)
 - On the 4th placement, queue[0] (oldest) **relocates onto the chosen cell** — its old cell is freed and the mark animates across the board. Final board state is identical to "remove oldest + place new"
 - **Win check happens AFTER the oldest mark is moved** — `board[]` and `queues[]` are updated to final state first, then `checkWin()` runs; the flight animation follows after
@@ -35,6 +35,10 @@ soundOn       // boolean — muted state, persisted
 audioCtx      // lazily created AudioContext | null
 flyAnim, flyEl// active WAAPI animation + its DOM clone (for cancelFlight)
 winTimer      // id of the pending showWin() timeout
+mode          // '2p' | 'ai' — persisted
+difficulty    // 'easy' | 'medium' | 'hard' — persisted
+aiThinking    // boolean — computer is "thinking"; blocks human input
+aiTimer       // id of the pending computer move
 ```
 
 ### Key Functions
@@ -61,6 +65,12 @@ winTimer      // id of the pending showWin() timeout
 | `loadMeta()` / `readStore()` / `writeStore()` | localStorage persistence (wrapped in try/catch) |
 | `setSound(on, persist)` | Mute toggle — syncs button state, aria attributes and storage |
 | `tone()` / `sfx` | Tiny WebAudio synth: `place`, `takeoff`, `land`, `win` |
+| `maybeRunAI()` | Schedules the computer move (AI_DELAY) when it's its turn; cancels otherwise |
+| `chooseAIMove()` | Picks a move: immediate win → optional blunder → depth-limited search |
+| `aiSearch(...)` | Minimax + alpha-beta with path-based cycle detection, returns a score |
+| `aiApplyMove(state, player, idx)` | Pure state transition used by the search |
+| `aiEvaluate(state)` | Heuristic: line value, discounted when built on the oldest mark |
+| `renderModeUI()` | Syncs mode/difficulty buttons, `aria-pressed`, labels and diff visibility |
 
 > `getCell(i)` uses `#board.querySelectorAll('.cell')[i]` (not `children[i]`) because the preview SVG is the board's first child.
 
@@ -167,6 +177,30 @@ While the current player's queue is full, hovering (mouse) or focusing an empty 
 - **Sound toggle** (`#sound-toggle`) — swaps `.snd-on` / `.snd-off` SVGs via the `.muted` class, updates `aria-pressed` / `aria-label`, persists to `localStorage`
 - **New Game** (`#new-game`) — always available (not just on the win screen); calls `resetGame()`
 
+## Controls Row
+
+`#controls` sits between the board and the queues — two segmented pills (`.seg`):
+
+- **Mode**: `2 Players` / `vs Computer` (`[data-mode]`, persisted). Changing mode always calls `resetGame()` so a game never continues in a mixed role state
+- **Difficulty**: `Easy` / `Medium` / `Hard` (`[data-diff]`, persisted). Hidden in 2P mode via the `hidden` attribute + `.seg[hidden] { display: none }` (needed because `.seg` sets `display: flex`)
+- `renderModeUI()` keeps `.active` / `aria-pressed` in sync and relabels the O queue card to "◯ Computer" in AI mode
+
+## Computer Opponent (AI)
+
+The computer is **O**, the human is **X**. Everything runs locally in the page — no network, no API keys.
+
+- Move generation: all empty cells; `aiApplyMove()` mirrors the live rules (place, then relocate the oldest when the queue is full)
+- **Search**: depth-limited minimax with alpha-beta pruning in `aiSearch()`. `SEARCH_DEPTH = { easy: 1, medium: 3, hard: 6 }`; a 250 ms deadline keeps the UI responsive
+- **Cycles**: positions can repeat (marks relocate), so the search carries a path-based `Set` of state keys (`board|queuesX|queuesO`) and scores repeats as `0` instead of recursing forever
+- **Terminal scoring**: a win is `±(10000 + remaining depth)`, so faster wins are preferred and the search stops as soon as a winning move is found
+- **Evaluation** (`aiEvaluate`): 2-in-line = 16, 1-in-line = 2, center = 4. If a 2-in-line includes that player's *oldest* mark while their queue is full, it is discounted to 5 — that mark relocates on their next move, so the line is fragile
+- **Move ordering**: center → corners → edges for better pruning
+- **Difficulty flavour**: Easy always takes an immediate win, otherwise 35 % random move; Medium 10 % random; Hard never blunders
+- **Turn flow**: `finishTurn()` (no win) and `resetGame()` call `maybeRunAI()`, which waits `AI_DELAY = 450 ms` ("Computer thinking…"), then calls `handleClick(idx)` like a human would (so sounds/animations come for free)
+- **Input blocking**: cell click/keydown handlers and `showMovePreview()` bail out while `aiThinking` is true; the computer itself calls `handleClick` directly
+- If the starter alternates to O, the computer opens the game
+- Win overlay says "Computer Wins!" and "You/Computer starts the next game" in AI mode
+
 ## Score & Persistence
 
 - Wins are shown in each queue header (`[data-wins]` in `.q-wins`) and again on the win card; `recordWin()` bumps the scorer's number with the `score-bump` animation
@@ -175,6 +209,8 @@ While the current player's queue is full, hovering (mouse) or focusing an empty 
   - `vxo:wins` — JSON `{ "X": n, "O": n }`
   - `vxo:starter` — `'X' | 'O'`
   - `vxo:sound` — `'1' | '0'` (missing = on)
+  - `vxo:mode` — `'2p' | 'ai'`
+  - `vxo:diff` — `'easy' | 'medium' | 'hard'`
 - Persisted state is loaded by `loadMeta()` before `initState()` at boot
 
 ## Sound
@@ -201,7 +237,9 @@ Procedural WebAudio only — no audio files:
 
 - **New Game during a flight** → `cancelFlight()` cancels the WAAPI animation and removes the clone; `onfinish` doesn't fire, so no stale mark is placed
 - **New Game during the win hold** → `winTimer` is cleared and `showWin()` + the overlay's 150ms timer both check `gameOver`
+- **Mode switch / New Game while the computer is thinking** → `aiTimer` is cleared and `aiThinking` reset, so no stray computer move lands on the new board
 - **Clicks during a flight** → blocked by `isAnimating`
+- **Clicks during the computer's turn** → blocked by `aiThinking`
 
 ## Responsiveness
 

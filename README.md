@@ -13,6 +13,7 @@ A twist on the classic Tic Tac Toe — each player can hold **at most 3 marks** 
 - When you place your **4th mark**, your **oldest mark moves** to the chosen cell (FIFO)
 - First to align **3 in a row** (horizontally, vertically, or diagonally) wins
 - No draws — the board never fills up completely
+- Pick **2 Players** for hot-seat or **vs Computer** (Easy / Medium / Hard) above the queues
 
 ## Features
 
@@ -20,6 +21,7 @@ A twist on the classic Tic Tac Toe — each player can hold **at most 3 marks** 
 - Dashed arrow previews where the oldest mark will fly on your 4th move
 - Queue panel displays your active marks oldest → newest
 - Smooth pop-in and flying-mark move animations
+- Local computer opponent (minimax + alpha-beta) with Easy / Medium / Hard
 - Match score saved between sessions, starting player alternates each game
 - Subtle sound effects with a mute toggle
 - Hover preview shows where your mark will land
@@ -28,7 +30,7 @@ A twist on the classic Tic Tac Toe — each player can hold **at most 3 marks** 
 
 ## Tech
 
-Pure HTML, CSS, and JavaScript — **single file** (fonts from Google Fonts; sounds are generated with WebAudio, no audio files).
+Pure HTML, CSS, and JavaScript — **single file** (fonts from Google Fonts; sounds are generated with WebAudio, no audio files; the computer opponent runs fully in the browser, no API or server).
 
 ## Run Locally
 
