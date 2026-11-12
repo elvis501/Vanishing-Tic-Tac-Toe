@@ -21,7 +21,7 @@ A twist on the classic Tic Tac Toe — each player can hold **at most 3 marks** 
 - Dashed arrow previews where the oldest mark will fly on your 4th move
 - Queue panel displays your active marks oldest → newest
 - Smooth pop-in and flying-mark move animations
-- Local computer opponent (minimax + alpha-beta) with Easy / Medium / Hard
+- Local computer opponent (minimax + alpha-beta, plus a precomputed opening book) with Easy / Medium / Hard
 - Match score saved between sessions, starting player alternates each game
 - Subtle sound effects with a mute toggle
 - Hover preview shows where your mark will land

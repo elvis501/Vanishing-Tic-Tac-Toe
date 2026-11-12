@@ -72,7 +72,8 @@ aiTimer       // id of the pending computer move
 | `setSound(on, persist)` | Mute toggle — syncs button state, aria attributes and storage |
 | `tone()` / `sfx` | Tiny WebAudio synth: `place`, `takeoff`, `land`, `win` |
 | `maybeRunAI()` | Schedules the computer move (AI_DELAY) when it's its turn; cancels otherwise |
-| `chooseAIMove()` | Picks a move: immediate win → optional blunder → depth-limited search |
+| `chooseAIMove()` | Picks a move: immediate win → opening book → optional blunder → depth-limited search |
+| `chooseBookMove()` | Looks up the current position in the precomputed opening book, gated by difficulty |
 | `aiSearch(...)` | Minimax + alpha-beta with path-based cycle detection, returns a score |
 | `aiApplyMove(state, player, idx)` | Pure state transition used by the search |
 | `aiEvaluate(state)` | Heuristic: line value, discounted when built on the oldest mark |
@@ -198,9 +199,10 @@ The computer is **O**, the human is **X**. Everything runs locally in the page �
 - Move generation: all empty cells; `aiApplyMove()` mirrors the live rules (place, then relocate the oldest when the queue is full)
 - **Search**: depth-limited minimax with alpha-beta pruning in `aiSearch()`. `SEARCH_DEPTH = { easy: 1, medium: 3, hard: 6 }`; a 250 ms deadline keeps the UI responsive
 - **Cycles**: positions can repeat (marks relocate), so the search carries a path-based `Set` of state keys (`board|queuesX|queuesO`) and scores repeats as `0` instead of recursing forever
-- **Terminal scoring**: a win is `±(10000 + remaining depth)`, so faster wins are preferred and the search stops as soon as a winning move is found
+- **Terminal scoring**: a win is `±(10000 + remaining depth)`, so faster wins are preferred. The early-exit break only fires on a win for the side being maximized/minimized (`value >= 10000` for O, `value <= -10000` for X) — never on `Math.abs(value) >= 10000`, because a *losing* move for the current side must not stop the loop (that bug made evaluations flip between depths)
 - **Evaluation** (`aiEvaluate`): 2-in-line = 16, 1-in-line = 2, center = 4. If a 2-in-line includes that player's *oldest* mark while their queue is full, it is discounted to 5 — that mark relocates on their next move, so the line is fragile
 - **Move ordering**: center → corners → edges for better pruning
+- **Opening book**: `<script type="application/json" id="open-book">` before the main script holds 514 positions (1 empty board + 9 replies to X's first move + 504 replies to X's second move), each mapped to the moves that tie for best in a depth-14 search. Keys match `aiStateKey()` exactly (`board|queuesX|queuesO`), so queue order is part of the lookup. `BOOK_MAX_MARKS = { easy: -1, medium: 0, hard: 1 }` decides whether the book may be used: Easy never, Medium only for O's first mark, Hard for O's first two marks. `chooseBookMove()` then picks uniformly among the stored moves for variety. The book only covers still-legal moves (validated at generation time); an absent key or a hit on an occupied cell falls back to the search
 - **Difficulty flavour**: Easy always takes an immediate win, otherwise 35 % random move; Medium 10 % random; Hard never blunders
 - **Turn flow**: `finishTurn()` (no win) and `resetGame()` call `maybeRunAI()`, which waits `AI_DELAY = 450 ms` ("Computer thinking…"), then calls `handleClick(idx)` like a human would (so sounds/animations come for free)
 - **Input blocking**: cell click/keydown handlers and `showMovePreview()` bail out while `aiThinking` is true; the computer itself calls `handleClick` directly
