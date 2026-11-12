@@ -6,6 +6,12 @@
   <title>Vanishing XO</title>
   <meta name="description" content="Vanishing XO — tic tac toe with a twist: max 3 marks each, and your oldest mark flies to the cell you pick on your 4th move.">
   <meta name="theme-color" content="#080814">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="apple-mobile-web-app-title" content="Vanishing XO">
   <meta property="og:type" content="website">
   <meta property="og:title" content="Vanishing XO">
   <meta property="og:description" content="Tic tac toe with a twist: max 3 marks each. Your oldest mark flies to the cell you pick on your 4th move.">
@@ -1430,6 +1436,16 @@
     });
 
     maybeRunAI();
+  </script>
+
+  <script>
+    // Install as an app (needs HTTPS; localhost is treated as secure)
+    if ('serviceWorker' in navigator &&
+        (location.protocol === 'https:' || location.hostname === 'localhost')) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').catch(() => { /* non-fatal */ });
+      });
+    }
   </script>
 </body>
 </html>

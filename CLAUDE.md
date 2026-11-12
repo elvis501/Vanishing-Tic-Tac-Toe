@@ -2,13 +2,19 @@
 
 ## Project Overview
 
-Single-file browser game: a twist on Tic Tac Toe where each player can hold at most **3 marks** on the board at any time. Placing a 4th mark **moves the oldest one onto the newly chosen cell** (FIFO queue) — the mark visibly flies across the board instead of disappearing. Playable hot-seat (2 players) or against a **local minimax computer opponent** (Easy / Medium / Hard). One external dependency: **Google Fonts (Quicksand)** loaded via `<link>` in `<head>`.
+Single-file browser game: a twist on Tic Tac Toe where each player can hold at most **3 marks** on the board at any time. Placing a 4th mark **moves the oldest one onto the newly chosen cell** (FIFO queue) — the mark visibly flies across the board instead of disappearing. Playable hot-seat (2 players) or against a **local minimax computer opponent** (Easy / Medium / Hard). One external dependency: **Google Fonts (Quicksand)** loaded via `<link>` in `<head>`. Ships with a small PWA layer so it can be installed on a phone and played offline; the game itself is still one file.
 
 ## File Structure
 
 ```
 Vanishing Tic Tac Toe/
-└── index.html   ← entire game (HTML + embedded CSS + embedded JS)
+├── index.html            ← entire game (HTML + embedded CSS + embedded JS)
+├── manifest.json         ← PWA manifest (name, colours, icons, standalone)
+├── sw.js                 ← service worker (offline cache, update strategy)
+├── icon-192.png          ← PWA icon
+├── icon-512.png          ← PWA icon
+├── icon-maskable-512.png ← PWA icon with the Android safe zone
+└── apple-touch-icon.png  ← 180×180 iOS home-screen icon
 ```
 
 ## Game Rules
@@ -250,6 +256,19 @@ Procedural WebAudio only — no audio files:
 - Font sizes: `clamp()` throughout
 - **Win overlay** is a fixed flex container with `overflow-y: auto` and the card using `margin: auto` — it stays centred when it fits and becomes scrollable instead of being clipped on short viewports
 - Short viewports (`max-height: 460px`, e.g. landscape phones) compress the win card; under 380px the big win mark shrinks to keep everything visible without scrolling
+
+## PWA (install on a phone)
+
+- `manifest.json`: `start_url`/`scope` are `"./"` (works from any sub-path), `display: "standalone"`, `background_color`/`theme_color` `#080814`, three PNG icons (192 any, 512 any, 512 maskable)
+- `<head>` also carries `apple-touch-icon`, `mobile-web-app-capable`, `apple-mobile-web-app-capable`, `apple-mobile-web-app-status-bar-style=black`, `apple-mobile-web-app-title`
+- Registration lives in a tiny script at the end of `<body>`, only for `https:` or `localhost`
+- `sw.js`: precaches the shell on install and `skipWaiting()`s; `activate` deletes every other `vxo-*` cache and calls `clients.claim()`
+  - **Navigations are network-first** (so game edits appear on the next load) with the cached `./index.html` as fallback
+  - Same-origin assets and Google Fonts are cache-first, filled at runtime (opaque font responses are cached too)
+  - Only `response.ok` / opaque responses are cached — an error page (e.g. a proxy 502) can never overwrite the cached game
+- Bump `VERSION` in `sw.js` when the `CORE` list or the SW logic changes; plain `index.html` edits need no bump
+- Icons were generated from the X/O artwork with a one-off Pillow script (not committed) — regenerate the PNGs if the branding changes
+- Service workers need HTTP(S): test with `python -m http.server`, not `file://`
 
 ## Accessibility & Keyboard Navigation
 

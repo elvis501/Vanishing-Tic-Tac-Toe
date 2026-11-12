@@ -27,14 +27,28 @@ A twist on the classic Tic Tac Toe — each player can hold **at most 3 marks** 
 - Hover preview shows where your mark will land
 - Win screen with random quips per player
 - Fully responsive — works on mobile
+- Installable as an app (PWA) — own icon, full screen, works offline
 
 ## Tech
 
-Pure HTML, CSS, and JavaScript — **single file** (fonts from Google Fonts; sounds are generated with WebAudio, no audio files; the computer opponent runs fully in the browser, no API or server).
+Pure HTML, CSS, and JavaScript (fonts from Google Fonts; sounds are generated with WebAudio, no audio files; the computer opponent runs fully in the browser, no API or server). The installable-app layer is a small `manifest.json` plus a `sw.js` service worker and PNG icons — the game itself is still one `index.html`.
+
+## Install on Your Phone
+
+Open the live site in the phone's browser, then:
+
+- **Android / Chrome** — tap the **Install app** prompt (or ⋮ menu → *Add to Home screen*)
+- **iPhone / Safari** — Share → **Add to Home Screen**
+
+It then opens full screen with its own icon and keeps working without an internet connection.
 
 ## Run Locally
 
 ```bash
 # Just open the file in your browser
 open index.html
+
+# Service worker (offline / install) needs HTTP, not file://
+python -m http.server 8000
+# then visit http://localhost:8000
 ```
