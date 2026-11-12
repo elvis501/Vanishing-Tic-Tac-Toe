@@ -23,7 +23,7 @@ Vanishing Tic Tac Toe/
 - Each player has a FIFO queue of their placed marks (max 3)
 - On the 4th placement, queue[0] (oldest) **relocates onto the chosen cell** — its old cell is freed and the mark animates across the board. Final board state is identical to "remove oldest + place new"
 - **Win check happens AFTER the oldest mark is moved** — `board[]` and `queues[]` are updated to final state first, then `checkWin()` runs; the flight animation follows after
-- No draw condition — cells are always freed, so the game always ends with a win
+- No draw rule and no repetition rule — the board never fills up, so a game ends as soon as someone completes a line. An exact retrograde solve of all 128,170 reachable states shows the initial position is a forced win for X, but 13,193 states are draw-class, so perfect play *could* cycle forever; the app does not detect or punish that. It stays a deliberate rules choice, not a bug
 
 ## Architecture (JavaScript)
 
@@ -204,6 +204,7 @@ The computer is **O**, the human is **X**. Everything runs locally in the page �
 - **Move ordering**: center → corners → edges for better pruning
 - **Opening book**: `<script type="application/json" id="open-book">` before the main script holds 586 positions — 1 empty board (O opens), 9 replies to X's first move, 504 replies to X's second move, and 72 replies when O started (O1/X1/O2) — each mapped to the moves that tie for best in a depth-14 search. Keys match `aiStateKey()` (`board|queuesX|queuesO`), so queue order is part of the lookup. `BOOK_MAX_MARKS = { easy: -1, medium: 0, hard: 1 }` decides whether the book may be used: Easy never, Medium only for O's first mark, Hard for O's first two marks. `chooseBookMove()` picks uniformly among the stored moves for variety. Verified against an exact retrograde solve of all 128,170 states: every stored move preserves the outcome class (win/draw/loss) of the position. An absent key or a hit on an occupied cell falls back to the search
 - **Difficulty flavour**: Easy always takes an immediate win, otherwise 35 % random move; Medium 10 % random; Hard never blunders
+- **Known limits**: depth 6 is not an exact solve. Sampling 1,500 midgame O-to-move positions against the exact retrograde table gave ~1.1 % outcome-class blunders (plus some mixed-class ties) — this is a horizon effect, not a bug. The book covers the opening, where a mistake costs the most; raising `SEARCH_DEPTH.hard` trades CPU time for accuracy
 - **Turn flow**: `finishTurn()` (no win) and `resetGame()` call `maybeRunAI()`, which waits `AI_DELAY = 450 ms` ("Computer thinking…"), then calls `handleClick(idx)` like a human would (so sounds/animations come for free)
 - **Input blocking**: cell click/keydown handlers and `showMovePreview()` bail out while `aiThinking` is true; the computer itself calls `handleClick` directly
 - If the starter alternates to O, the computer opens the game
